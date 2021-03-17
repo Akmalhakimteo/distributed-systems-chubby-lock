@@ -3,23 +3,26 @@ package server
 import (
 	"fmt"
 	"time"
+	"log"
+	"os"
+	"strconv"
 	// "math/rand"
 )
 
-type Node struct{
-	id int
-	revChan chan Message
-	replyChan chan Message
-	peers []Node
-	quitElect chan int
-	killNode chan int
+type Node struct {
+	id          int
+	revChan     chan Message
+	replyChan   chan Message
+	peers       []Node
+	quitElect   chan int
+	killNode    chan int
 	coordinator int
 }
 
-func Start(numNodes int) []Node{
+func Start(numNodes int) []Node {
 	allNodes := make([]Node, numNodes)
 
-	for i:= 0; i< numNodes; i++{
+	for i := 0; i < numNodes; i++ {
 		allNodes[i].id = i
 		allNodes[i].revChan = make(chan Message)
 		allNodes[i].replyChan = make(chan Message)
@@ -32,7 +35,7 @@ func Start(numNodes int) []Node{
 	//Uncomment line 149 to test best case of election
 	// go allNodes[0].elect()
 
-	for i:=0; i<numNodes; i++{
+	for i := 0; i < numNodes; i++ {
 		go allNodes[i].ping()
 		go allNodes[i].checkChannel()
 	}
@@ -46,7 +49,7 @@ func Start(numNodes int) []Node{
 	return allNodes
 }
 
-func KillNode(id int, allNodes []Node){
+func KillNode(id int, allNodes []Node) {
 	// id = rand.Intn(numNodes)
 	fmt.Println("We're Killing node: ", id)
 	allNodes[id].kill()
@@ -56,9 +59,9 @@ func KillNode(id int, allNodes []Node){
 	// }
 }
 
-type Message struct{
+type Message struct {
 	senderID int
-	msg string
+	msg      string
 }
 
 func timer(d time.Duration) chan bool {
@@ -98,63 +101,62 @@ func sendInt(ch chan int, msg int) chan bool {
 	return outCh
 }
 
-func (n *Node) elect(){
+func (n *Node) elect() {
 	go n.checkReply()
-	for i :=n.id+1; i<len(n.peers); i++{
+	for i := n.id + 1; i < len(n.peers); i++ {
 		fmt.Println("Send Elect to: ", i)
 		send(n.peers[i].revChan, Message{n.id, "Elect"})
 		//n.peers[i].revChan <- Message{n.id, "Elect"}
-		<- n.quitElect
+		<-n.quitElect
 	}
 }
 
-
-func (n *Node) checkChannel(){
+func (n *Node) checkChannel() {
 	for {
-		select{
+		select {
 		case x := <-n.revChan:
-			if x.msg == "Elect"{
+			if x.msg == "Elect" {
 				// reply if id > sender's id
 				fmt.Println(n.id, "Received ELECT")
-				if x.senderID < n.id{
+				if x.senderID < n.id {
 					// Send reply to sender to challenge election
 					fmt.Println(n.id, "Challenging election")
 					send(n.peers[x.senderID].replyChan, Message{n.id, "Reply"})
 					go n.elect()
 				}
-			}else if x.msg == "Coordinate"{
+			} else if x.msg == "Coordinate" {
 				n.coordinator = x.senderID
 				fmt.Println(n.id, "Received COORDINATOR: ", x.senderID)
-			}else if x.msg == "BLOCKED"{
+			} else if x.msg == "BLOCKED" {
 				return
 			}
-		case <- n.killNode:
+		case <-n.killNode:
 			return
 		}
 	}
 }
 
-func (n *Node) ping(){
+func (n *Node) ping() {
 	for {
 		// fmt.Println("peers: ", n.peers)
 		fmt.Println("coordinator: ", n.coordinator)
-		select{
-		case n.peers[n.coordinator].revChan<-Message{n.id, "Are you alive?"}:
+		select {
+		case n.peers[n.coordinator].revChan <- Message{n.id, "Are you alive?"}:
 			time.Sleep(time.Second * 3)
-		case <- time.After(time.Second*10):
+		case <-time.After(time.Second * 10):
 			n.elect()
-		case <- n.killNode:
+		case <-n.killNode:
 			return
 		}
 	}
 }
 
-func (n *Node) checkReply(){
+func (n *Node) checkReply() {
 	noReply := 0
-	for i:= 0; i<5; i++{
+	for i := 0; i < 5; i++ {
 		time.Sleep(time.Millisecond * 1000)
-		select{
-		case <- n.replyChan:
+		select {
+		case <-n.replyChan:
 			// stop election process
 			fmt.Println(n.id, "Received REPLY")
 			sendInt(n.quitElect, 0)
@@ -162,21 +164,53 @@ func (n *Node) checkReply(){
 		default:
 			//nothing receive
 			fmt.Println("No reply received")
-			noReply ++
+			noReply++
 			continue
 		}
 	}
-	if noReply == 5{
+	if noReply == 5 {
 		fmt.Println("MUAHAHA IM THE BULLY NOW")
 		n.coordinator = n.id
-		for i:= 0; i<n.id; i++{
+		for i := 0; i < n.id; i++ {
 			send(n.peers[i].revChan, Message{n.id, "Coordinate"})
 		}
 	}
 }
 
-func (n *Node) kill(){
+func (n *Node) kill() {
 	sendInt(n.killNode, 0)
 	sendInt(n.killNode, 0)
 	//n.killNode <- 0
 }
+
+func SimulateDuplicateACK() {
+	fmt.Println("simulating duplicate protocol")
+}
+
+func WriteToAllNodes(allNodes [] Node, numNodes int,fileName,fileContent string){
+	for i := 0; i<numNodes;i++{
+		nodeNumFile := "node" + strconv.Itoa(allNodes[i].id)
+		nodeNumFile+=".txt"
+		// fmt.Println("Printing node: ",allNodes[i].id)
+		// fmt.Println(nodeNumFile,fileContent)
+
+		f, err := os.OpenFile(nodeNumFile,os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer f.Close()
+		writeToFile  := fileName + " " + fileContent + "\n"
+		if _, err := f.WriteString(writeToFile); err != nil {
+			log.Println(err)
+		}
+		fmt.Printf("Node %v is updated with most recent file\n",allNodes[i].id)
+
+
+	}
+}
+
+
+
+
+
+
