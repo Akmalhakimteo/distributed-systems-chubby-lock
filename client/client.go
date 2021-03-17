@@ -1,0 +1,125 @@
+package client
+
+import (
+	"fmt"
+	"time"
+)
+
+type Node struct{
+	id int
+	revChan chan Message
+	replyChan chan Message
+	peers []Node
+	quitElect chan int
+	killNode chan int
+	coordinator int
+}
+
+type Message struct{
+	senderID int
+	msg string
+}
+
+func timer(d time.Duration) chan bool {
+	ch := make(chan bool, 1)
+	go func() {
+		time.Sleep(d)
+		ch <- true
+	}()
+	return ch
+}
+
+func send(ch chan Message, msg Message) chan bool {
+	outCh := make(chan bool, 1)
+	go func() {
+		t := timer(time.Duration(3 * time.Second))
+		select {
+		case <-t:
+			outCh <- false
+		case ch <- msg:
+			outCh <- true
+		}
+	}()
+	return outCh
+}
+
+func sendInt(ch chan int, msg int) chan bool {
+	outCh := make(chan bool, 1)
+	go func() {
+		t := timer(time.Duration(3 * time.Second))
+		select {
+		case <-t:
+			outCh <- false
+		case ch <- msg:
+			outCh <- true
+		}
+	}()
+	return outCh
+}
+
+func (n *Node) elect(){
+	go n.checkReply()
+	for i :=n.id+1; i<len(n.peers); i++{
+		fmt.Println("Send Elect to: ", i)
+		send(n.peers[i].revChan, Message{n.id, "Elect"})
+		//n.peers[i].revChan <- Message{n.id, "Elect"}
+		<- n.quitElect
+	}
+}
+
+
+func (n *Node) checkChannel(){
+	for {
+		select{
+		case x := <-n.revChan:
+			if x.msg == "Elect"{
+				// reply if id > sender's id
+				fmt.Println(n.id, "Received ELECT")
+				if x.senderID < n.id{
+					// Send reply to sender to challenge election
+					fmt.Println(n.id, "Challenging election")
+					send(n.peers[x.senderID].replyChan, Message{n.id, "Reply"})
+					go n.elect()
+				}
+			}else if x.msg == "Coordinate"{
+				n.coordinator = x.senderID
+				fmt.Println(n.id, "Received COORDINATOR: ", x.senderID)
+			}else if x.msg == "BLOCKED"{
+				return
+			}
+		case <- n.killNode:
+			return
+		}
+	}
+}
+
+func (n *Node) checkReply(){
+	noReply := 0
+	for i:= 0; i<5; i++{
+		time.Sleep(time.Millisecond * 500)
+		select{
+		case <- n.replyChan:
+			// stop election process
+			fmt.Println(n.id, "Received REPLY")
+			sendInt(n.quitElect, 0)
+
+		default:
+			//nothing receive
+			fmt.Println("No reply received")
+			noReply ++
+			continue
+		}
+	}
+	if noReply == 5{
+		fmt.Println("MUAHAHA IM THE BULLY NOW")
+		n.coordinator = n.id
+		for i:= 0; i<n.id; i++{
+			send(n.peers[i].revChan, Message{n.id, "Coordinate"})
+		}
+	}
+}
+
+func (n *Node) kill(){
+	sendInt(n.killNode, 0)
+	//n.killNode <- 0
+}
