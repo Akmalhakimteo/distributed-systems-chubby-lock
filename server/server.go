@@ -2,10 +2,10 @@ package server
 
 import (
 	"fmt"
-	"time"
 	"log"
 	"os"
 	"strconv"
+	"time"
 	// "math/rand"
 )
 
@@ -187,30 +187,58 @@ func SimulateDuplicateACK() {
 	fmt.Println("simulating duplicate protocol")
 }
 
-func WriteToAllNodes(allNodes [] Node, numNodes int,fileName,fileContent string){
-	for i := 0; i<numNodes;i++{
+func WriteToAllNodes(allNodes []Node, numNodes int, fileName, fileContent string) {
+	for i := 0; i < numNodes; i++ {
 		nodeNumFile := "node" + strconv.Itoa(allNodes[i].id)
-		nodeNumFile+=".txt"
+		nodeNumFile += ".txt"
 		// fmt.Println("Printing node: ",allNodes[i].id)
 		// fmt.Println(nodeNumFile,fileContent)
-
-		f, err := os.OpenFile(nodeNumFile,os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(nodeNumFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			log.Println(err)
 		}
 		defer f.Close()
-		writeToFile  := fileName + " " + fileContent + "\n"
+		writeToFile := fileName + " " + fileContent + "\n"
 		if _, err := f.WriteString(writeToFile); err != nil {
 			log.Println(err)
 		}
-		fmt.Printf("Node %v is updated with most recent file\n",allNodes[i].id)
-
-
+		fmt.Printf("Node %v is updated with most recent file\n", allNodes[i].id)
 	}
 }
 
+func ServerNodeWriteUpdate(allNodes []Node, numNodes int, fileName, fileContent string) {
+	for i := 0; i < numNodes-1; i++ {
+		nodeNumFile := "node" + strconv.Itoa(allNodes[i].id)
+		nodeNumFile += ".txt"
+		// fmt.Println("Printing node: ",allNodes[i].id)
+		// fmt.Println(nodeNumFile,fileContent)
+		f, err := os.OpenFile(nodeNumFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer f.Close()
+		writeToFile := fileName + " " + fileContent + "\n"
+		if _, err := f.WriteString(writeToFile); err != nil {
+			log.Println(err)
+		}
+		fmt.Printf("Node %v is updated with most recent file\n", allNodes[i].id)
+	}
+}
 
+func MasterNodeWriteUpdate(masterNodeNumber int, fileName, fileContent string) {
+	nodeNumFile := "node" + strconv.Itoa(masterNodeNumber)
+	nodeNumFile += ".txt"
+	// fmt.Println("Printing node: ",allNodes[i].id)
+	// fmt.Println(nodeNumFile,fileContent)
+	f, err := os.OpenFile(nodeNumFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println(err)
+	}
+	defer f.Close()
+	writeToFile := fileName + " " + fileContent + "\n"
+	if _, err := f.WriteString(writeToFile); err != nil {
+		log.Println(err)
+	}
+	fmt.Printf("Node %v is updated with most recent file\n", masterNodeNumber)
 
-
-
-
+}

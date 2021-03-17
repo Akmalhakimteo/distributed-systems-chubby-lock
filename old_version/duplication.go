@@ -1,10 +1,12 @@
 package main
 
+
 import (
 	"fmt"
 	"time"
 	"os"
 	"strconv"
+	"log"
 )
 
 type Message struct{
@@ -45,11 +47,15 @@ func main() {
 	go clientWriteReq("new file content!", "FileABC", fromClient)
 	go masterPropagate(fromClient, allNodes, toClient)
 
-	for i:= 0; i< len(allNodes)-1; i++{
-		go cellServerOK(i+1, allNodes[i].revChan, allNodes[i].replyChan)
+	// for i:= 0; i< len(allNodes)-1; i++{ //FOR FAIL CASE
+	// 	go cellServerOK(i+1, allNodes[i].revChan, allNodes[i].replyChan)
+	// }
+
+	for i:= 0; i< len(allNodes)-1; i++{  // FOR PASS CASE
+		go cellServerOK(i+1, allNodes[i].revChan, allNodes[i].replyChan) 
 	}
 
-	go cellServerFail(4, allNodes[len(allNodes)-1].revChan, allNodes[len(allNodes)-1].replyChan)
+	// go cellServerFail(4, allNodes[len(allNodes)-1].revChan, allNodes[len(allNodes)-1].replyChan) // FOR FAIL CASE
 	go clientAwaitACK(toClient)
 
 	//take grace period as 15 seconds, if not reponse close program
@@ -69,7 +75,7 @@ func masterPropagate(fromClient chan Message, allNodes []Node, toClient chan boo
 		fileName := data.fileName
 		fileContent := data.fileContent
 		fmt.Println("server has received request to write to", fileName)
-		for i:=0; i< len(allNodes); i++{
+		for i:=0; i< len(allNodes)-1; i++{
 			allNodes[i].revChan <- data
 		}
 		fmt.Println("server has propagated request to write to entire cell, awaiting response...")
@@ -78,7 +84,7 @@ func masterPropagate(fromClient chan Message, allNodes []Node, toClient chan boo
 		//master wait for servers to repsond w true, else will not continue
 
 		OK := true
-		for i:=0; i<len(allNodes); i++{
+		for i:=0; i<len(allNodes)-1; i++{  
 			checkBool := <- allNodes[i].replyChan
 			if checkBool != true{
 				fmt.Println("error msg from server ", i+ 1, "\n")
@@ -90,6 +96,7 @@ func masterPropagate(fromClient chan Message, allNodes []Node, toClient chan boo
 		if OK {
 			fmt.Println("master has received ACK from all servers")
 			//master updating database
+			MasterNodeWriteUpdate(len(allNodes),fileName,fileContent)
 			time.Sleep(5 * time.Second)
 			fmt.Println("master finished updating", fileName, "w", fileContent)
 		} else {
@@ -104,6 +111,7 @@ func cellServerOK(index int, fromMaster chan Message, toMaster chan bool) {
 	fileName := data.fileName
 	fileContent := data.fileContent
 	// server updates replicas
+	MasterNodeWriteUpdate(index,fileName,fileContent)
 	time.Sleep(5 * time.Second)
 	fmt.Println("server", index, "finished updating", fileName, "w", fileContent)
 	toMaster <- true
@@ -129,3 +137,41 @@ func clientAwaitACK(toClient chan bool) {
 		}
 	}
 }
+
+func ServerNodeWriteUpdate(allNodes []Node, numNodes int, fileName, fileContent string) {
+	for i := 0; i < numNodes-1; i++ {
+		nodeNumFile := "node" + strconv.Itoa(allNodes[i].id)
+		nodeNumFile += ".txt"
+		// fmt.Println("Printing node: ",allNodes[i].id)
+		// fmt.Println(nodeNumFile,fileContent)
+		f, err := os.OpenFile(nodeNumFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Println(err)
+		}
+		defer f.Close()
+		writeToFile := fileName + " " + fileContent + "\n"
+		if _, err := f.WriteString(writeToFile); err != nil {
+			log.Println(err)
+		}
+		fmt.Printf("Node %v is updated with most recent file\n", allNodes[i].id)
+	}
+}
+
+func MasterNodeWriteUpdate(masterNodeNumber int, fileName, fileContent string) {
+	nodeNumFile := "node" + strconv.Itoa(masterNodeNumber)
+	nodeNumFile += ".txt"
+	// fmt.Println("Printing node: ",allNodes[i].id)
+	// fmt.Println(nodeNumFile,fileContent)
+	f, err := os.OpenFile(nodeNumFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println(err)
+	}
+	defer f.Close()
+	writeToFile := fileName + " " + fileContent + "\n"
+	if _, err := f.WriteString(writeToFile); err != nil {
+		log.Println(err)
+	}
+	fmt.Printf("Node %v is updated with most recent file\n", masterNodeNumber)
+
+}
+
