@@ -4,7 +4,7 @@ import (
 	s "ds_proj/server"
 	"os"
 	"strconv"
-	// "fmt"
+	"fmt"
 )
 
 
@@ -17,4 +17,6 @@ func main(){
 
 	allNodes = s.Start(numNodes)
 	s.KillNode(4, allNodes)
+	var input string
+	fmt.Scanln(&input)
 }

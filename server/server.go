@@ -26,22 +26,23 @@ func Start(numNodes int) []Node{
 		allNodes[i].quitElect = make(chan int)
 		allNodes[i].killNode = make(chan int)
 		allNodes[i].peers = allNodes
-		allNodes[i].coordinator = -1
+		allNodes[i].coordinator = numNodes - 1
 	}
 
 	//Uncomment line 149 to test best case of election
-	go allNodes[0].elect()
+	// go allNodes[0].elect()
 
 	for i:=0; i<numNodes; i++{
+		go allNodes[i].ping()
 		go allNodes[i].checkChannel()
 	}
 
-	//var input string
-	//fmt.Scanln(&input)
-	time.Sleep(time.Second * 3)
-	for i:=0; i<numNodes; i++{
-		fmt.Println("Node",  i, "'s coordinator is: ", allNodes[i].coordinator)
-	}
+	// var input string
+	// fmt.Scanln(&input)
+	// time.Sleep(time.Second * 3)
+	// for i:=0; i<numNodes; i++{
+	// 	fmt.Println("Node",  i, "'s coordinator is: ", allNodes[i].coordinator)
+	// }
 	return allNodes
 }
 
@@ -49,10 +50,10 @@ func KillNode(id int, allNodes []Node){
 	// id = rand.Intn(numNodes)
 	fmt.Println("We're Killing node: ", id)
 	allNodes[id].kill()
-	time.Sleep(time.Second * 3)
-	for i:=0; i<len(allNodes); i++{
-		fmt.Println("Node",  i, "'s coordinator is: ", allNodes[i].coordinator)
-	}
+	// time.Sleep(time.Second * 3)
+	// for i:=0; i<len(allNodes); i++{
+	// 	fmt.Println("Node",  i, "'s coordinator is: ", allNodes[i].coordinator)
+	// }
 }
 
 type Message struct{
@@ -133,6 +134,21 @@ func (n *Node) checkChannel(){
 	}
 }
 
+func (n *Node) ping(){
+	for {
+		// fmt.Println("peers: ", n.peers)
+		fmt.Println("coordinator: ", n.coordinator)
+		select{
+		case n.peers[n.coordinator].revChan<-Message{n.id, "Are you alive?"}:
+			time.Sleep(time.Second * 3)
+		case <- time.After(time.Second*10):
+			n.elect()
+		case <- n.killNode:
+			return
+		}
+	}
+}
+
 func (n *Node) checkReply(){
 	noReply := 0
 	for i:= 0; i<5; i++{
@@ -160,6 +176,7 @@ func (n *Node) checkReply(){
 }
 
 func (n *Node) kill(){
+	sendInt(n.killNode, 0)
 	sendInt(n.killNode, 0)
 	//n.killNode <- 0
 }
