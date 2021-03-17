@@ -1,6 +1,8 @@
 # distributed-systems-chubby-lock
 
 **To run:** ```go run ./bully.go [number of nodes]```
+
+
 (a) Best case for bully algorithm: uncomment `line 148`
 
 (b) Worst case for bully algorithm: uncomment `line 151`
