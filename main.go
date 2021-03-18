@@ -18,7 +18,6 @@ func main(){
 	)
 	arg := os.Args[1]
 	numNodes, _ := strconv.Atoi(arg)
-
 	allNodes = s.Start(numNodes)
 
 	for i:= 0; i< numNodes; i++{
@@ -31,6 +30,8 @@ func main(){
 	fmt.Println(allNodes[0].Coordinator)
 	fmt.Println(allClients[0].Id)
 	// s.KillNode(4, allNodes)
+	// s.SimulateDuplicateACK()
+	// s.WriteToAllNodes(allNodes,numNodes,"newfile.txt","newcontent")
 	var input string
 	fmt.Scanln(&input)
 }

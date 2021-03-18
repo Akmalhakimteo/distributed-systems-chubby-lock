@@ -152,9 +152,9 @@ func main(){
 	// go allNodes[numNodes-2].elect()
 
 	//Uncomment lines 155-157 to test random killing of nodes
-	toKill = rand.Intn(numNodes)
-	fmt.Println("We're Killing node: ", toKill)
-	allNodes[toKill].kill()
+	// toKill = rand.Intn(numNodes)
+	// fmt.Println("We're Killing node: ", toKill)
+	// allNodes[toKill].kill()
 
 
 	for i:=0; i<numNodes; i++{
