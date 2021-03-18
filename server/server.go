@@ -4,16 +4,31 @@ import (
 	"fmt"
 	"time"
 	// "math/rand"
+	c "ds_proj/client"
+	"strconv"
 )
 
 type Node struct{
 	id int
 	revChan chan Message
 	replyChan chan Message
+	ClientChan chan c.SelfIntroduction
 	peers []Node
 	quitElect chan int
 	killNode chan int
-	coordinator int
+	Coordinator int
+	AllClients []chan c.File
+}
+
+type Message struct{
+	SenderID int
+	Msg string
+}
+
+type Lock struct {
+	filename		str
+	mode			str
+	owners			map[int]bool
 }
 
 func Start(numNodes int) []Node{
@@ -26,7 +41,8 @@ func Start(numNodes int) []Node{
 		allNodes[i].quitElect = make(chan int)
 		allNodes[i].killNode = make(chan int)
 		allNodes[i].peers = allNodes
-		allNodes[i].coordinator = numNodes - 1
+		allNodes[i].Coordinator = numNodes - 1
+		allNodes[i].ClientChan = make(chan c.SelfIntroduction)
 	}
 
 	//Uncomment line 149 to test best case of election
@@ -54,11 +70,6 @@ func KillNode(id int, allNodes []Node){
 	// for i:=0; i<len(allNodes); i++{
 	// 	fmt.Println("Node",  i, "'s coordinator is: ", allNodes[i].coordinator)
 	// }
-}
-
-type Message struct{
-	senderID int
-	msg string
 }
 
 func timer(d time.Duration) chan bool {
@@ -113,20 +124,41 @@ func (n *Node) checkChannel(){
 	for {
 		select{
 		case x := <-n.revChan:
-			if x.msg == "Elect"{
+			if x.Msg == "Elect"{
 				// reply if id > sender's id
 				fmt.Println(n.id, "Received ELECT")
-				if x.senderID < n.id{
+				if x.SenderID < n.id{
 					// Send reply to sender to challenge election
 					fmt.Println(n.id, "Challenging election")
-					send(n.peers[x.senderID].replyChan, Message{n.id, "Reply"})
+					send(n.peers[x.SenderID].replyChan, Message{n.id, "Reply"})
 					go n.elect()
 				}
-			}else if x.msg == "Coordinate"{
-				n.coordinator = x.senderID
-				fmt.Println(n.id, "Received COORDINATOR: ", x.senderID)
-			}else if x.msg == "BLOCKED"{
+			}else if x.Msg == "Coordinate"{
+				n.Coordinator = x.SenderID
+				fmt.Println(n.id, "Received COORDINATOR: ", x.SenderID)
+			}else if x.Msg == "BLOCKED"{
 				return
+			}
+		case intro := <-n.ClientChan:
+			if intro.Msg == "req connection"{
+				if n.id!=n.Coordinator{
+					continue
+				}
+				select{
+				case intro.RevChan<-c.File{len(n.AllClients), "", ""}:
+					fmt.Println("connected with client")
+					n.AllClients = append(n.AllClients, intro.RevChan)
+					fmt.Println("current length of clients list: ", len(n.AllClients))
+				case <- time.After(time.Second*5):
+					fmt.Println("failed to connect")
+				}
+			}else if intro.Msg == "req master"{
+				select{
+				case intro.RevChan<-c.File{len(n.AllClients), "", strconv.Itoa(n.Coordinator)}:
+					fmt.Println("sent client the coordinator")
+				case <- time.After(time.Second*5):
+					fmt.Println("failed to send client the coordinator")
+				}
 			}
 		case <- n.killNode:
 			return
@@ -137,9 +169,9 @@ func (n *Node) checkChannel(){
 func (n *Node) ping(){
 	for {
 		// fmt.Println("peers: ", n.peers)
-		fmt.Println("coordinator: ", n.coordinator)
+		fmt.Println("node: ", n.id, "is pinging master server: ", n.Coordinator)
 		select{
-		case n.peers[n.coordinator].revChan<-Message{n.id, "Are you alive?"}:
+		case n.peers[n.Coordinator].revChan<-Message{n.id, "Are you alive?"}:
 			time.Sleep(time.Second * 3)
 		case <- time.After(time.Second*10):
 			n.elect()
@@ -168,7 +200,7 @@ func (n *Node) checkReply(){
 	}
 	if noReply == 5{
 		fmt.Println("MUAHAHA IM THE BULLY NOW")
-		n.coordinator = n.id
+		n.Coordinator = n.id
 		for i:= 0; i<n.id; i++{
 			send(n.peers[i].revChan, Message{n.id, "Coordinate"})
 		}
