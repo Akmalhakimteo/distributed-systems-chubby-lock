@@ -8,7 +8,6 @@ import (
 	"time"
 	// "math/rand"
 	c "ds_proj/client"
-	"strconv"
 )
 
 type Node struct{
@@ -29,9 +28,9 @@ type Message struct{
 }
 
 type Lock struct {
-	filename		str
-	mode			str
-	owners			map[int]bool
+	filename string
+	mode string
+	owners map[int]bool
 }
 
 func Start(numNodes int) []Node {
@@ -75,14 +74,6 @@ func KillNode(id int, allNodes []Node) {
 	// }
 }
 
-<<<<<<< HEAD
-=======
-type Message struct {
-	senderID int
-	msg      string
-}
-
->>>>>>> cf29a5c57c64f8bad556bc0f12ed61902755916a
 func timer(d time.Duration) chan bool {
 	ch := make(chan bool, 1)
 	go func() {
