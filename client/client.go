@@ -14,6 +14,7 @@ type Client struct{
 	masterServer int
 	AllServers []chan SelfIntroduction
 	ServerID int
+	MasterChan chan File
 
 	// revChan chan Message
 	// replyChan chan Message
@@ -51,7 +52,7 @@ func InitClient(numClients int, AllServers []chan SelfIntroduction) []Client{
 	// Communicate with server to find master and establish connection
 	for i:=0; i<numClients; i++{
 		go allClients[i].find_master()
-		// go allClients[i].checkChannel()
+		// go allClients[i].WriteReq("test.txt", "Hello World")
 	}
 	fmt.Println("Clients Created")
 	return allClients
@@ -92,7 +93,15 @@ func (c *Client) connect(){
 				c.ServerID = reply.SenderID
 				fmt.Println("Successfully connected to current masterServer: ", c.masterServer)
 				fmt.Println("ServerID is: ", c.ServerID)
-				return
+				select{
+				case filechan := <- c.AllServers[c.masterServer]:
+					c.MasterChan = filechan.RevChan
+					fmt.Println("Received file chan from master server")
+					return
+				case <- time.After(time.Second*5):
+					fmt.Println("Client: ", c.Id,"failed to connect to server: ", c.masterServer)
+					continue
+				}
 			case <- time.After(time.Second*5):
 				fmt.Println("Client: ", c.Id,"failed to connect to server: ", c.masterServer)
 				continue
@@ -105,3 +114,32 @@ func (c *Client) connect(){
 	fmt.Println("Failed to connect to any server")
 }
 
+func (c *Client) WriteReq(fileContent string, fileName string) {
+	fmt.Println("client request to write to", fileName, "with content:", fileContent)
+	data := File{c.ServerID, fileName, fileContent}
+	c.MasterChan <- data
+}
+
+func (c *Client) TryAcquireLock(fileName string) {
+	fmt.Println("client request to get lock to", fileName)
+	data := File{c.ServerID, fileName, "req lock"}
+	c.MasterChan <- data
+}
+
+func (c *Client) CreateFile(fileName string) {
+	fmt.Println("client request to create file: ", fileName)
+	data := File{c.ServerID, fileName, "create file"}
+	c.MasterChan <- data
+}
+
+// func (c *Client) CreateFile(fileContent string, fileName string, fromClient chan Message) {
+// 	fmt.Println("client request to write to", fileName, "with content:", fileContent)
+// 	data := Message{fileName, fileContent}
+// 	fromClient <- data
+// }
+
+// func (c *Client) TryAcquireLock(fileContent string, fileName string, fromClient chan Message) {
+// 	fmt.Println("client request to write to", fileName, "with content:", fileContent)
+// 	data := Message{fileName, fileContent}
+// 	fromClient <- data
+// }

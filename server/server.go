@@ -20,6 +20,8 @@ type Node struct{
 	killNode chan int
 	Coordinator int
 	AllClients []chan c.File
+	FileChan chan c.File
+	database map[string]Lock
 }
 
 type Message struct{
@@ -45,6 +47,7 @@ func Start(numNodes int) []Node {
 		allNodes[i].peers = allNodes
 		allNodes[i].Coordinator = numNodes - 1
 		allNodes[i].ClientChan = make(chan c.SelfIntroduction)
+		allNodes[i].database = make(map[string]Lock)
 	}
 
 	//Uncomment line 149 to test best case of election
@@ -150,6 +153,12 @@ func (n *Node) checkChannel() {
 					fmt.Println("connected with client")
 					n.AllClients = append(n.AllClients, intro.RevChan)
 					fmt.Println("current length of clients list: ", len(n.AllClients))
+					select{
+					case n.ClientChan <-c.SelfIntroduction{n.id, n.FileChan, ""}:
+						fmt.Println("sent filechan to client")
+					case <- time.After(time.Second*5):
+						fmt.Println("failed to send")
+					}
 				case <- time.After(time.Second*5):
 					fmt.Println("failed to connect")
 				}
@@ -160,6 +169,15 @@ func (n *Node) checkChannel() {
 				case <- time.After(time.Second*5):
 					fmt.Println("failed to send client the coordinator")
 				}
+			}
+		case file := <-n.FileChan:
+			if file.Filecontent == "req lock"{
+				fmt.Println("request for lock received")
+			}else if file.Filecontent == "create file"{
+				fmt.Println("request to create file received")
+				// n.database[file.Filename] = 
+			}else{
+				fmt.Println("request for write received")
 			}
 		case <- n.killNode:
 			return

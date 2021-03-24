@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"fmt"
 	c "ds_proj/client"
-	// "time"
+	"time"
 )
 
 
@@ -29,7 +29,8 @@ func main(){
 
 	fmt.Println(allNodes[0].Coordinator)
 	fmt.Println(allClients[0].Id)
-	// s.KillNode(4, allNodes)
+	time.Sleep(time.Second * 10)
+	s.KillNode(4, allNodes)
 	// s.SimulateDuplicateACK()
 	// s.WriteToAllNodes(allNodes,numNodes,"newfile.txt","newcontent")
 	var input string

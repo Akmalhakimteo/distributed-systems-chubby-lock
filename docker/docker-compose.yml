@@ -1,0 +1,64 @@
+version: '3.3'
+services:
+    server0:
+        build:
+            context: ./server/
+            dockerfile: Dockerfile.server0
+        container_name: server0
+        networks:
+            static-network:
+                ipv4_address: 172.22.0.7
+    server1:
+        build:
+            context: ./server/
+            dockerfile: Dockerfile.server1
+        container_name: server1
+        networks:
+            static-network:
+                ipv4_address: 172.22.0.3
+    server2:
+        build:
+            context: ./server/
+            dockerfile: Dockerfile.server2
+        container_name: server2
+        networks:
+            static-network:
+                ipv4_address: 172.22.0.4
+    # server3:
+    #     build:
+    #         context: ./server/
+    #         dockerfile: Dockerfile.server3
+    #     container_name: server3
+    #     networks:
+    #         static-network:
+    #             ipv4_address: 172.22.0.5
+    # server4:
+    #     build:
+    #         context: ./server/
+    #         dockerfile: Dockerfile.server4
+    #     container_name: server4
+    #     networks:
+    #         static-network:
+    #             ipv4_address: 172.22.0.6
+    client:
+        build:
+            context: ./client/
+            dockerfile: Dockerfile.client
+        container_name: client
+        # image: my-golang-app-client
+        depends_on:
+            - "server0"
+            - "server1"
+            # - "server3"
+            # - "server4"
+            # - "server5"
+        ports:
+            - "12346:12346"
+        networks:
+            static-network:
+                ipv4_address: 172.22.0.2
+networks:
+    static-network:
+        ipam:
+            config:
+                - subnet: 172.22.0.0/16
