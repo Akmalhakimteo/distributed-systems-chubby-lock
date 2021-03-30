@@ -31,8 +31,12 @@ type Client struct {
 type Node struct {
 	id          int
 	all_ip      [3]string
+	// all_ip      [5]string
 	Coordinator int
-	rpcChan     *rpc.Client
+	electing 	bool
+	rpcChan     [3]*rpc.Client
+	// rpcChan     [5]*rpc.Client
+	Coord_chng	bool
 	// revChan chan Message
 	// replyChan chan Message
 	// ClientChan chan c.SelfIntroduction
@@ -59,28 +63,54 @@ func (l *Listener) Keepalive(c *Client, reply *Reply) error {
 	return nil
 }
 
+func (l *Listener) Election(msg Message, reply *Message) error {
+	fmt.Printf("Received: %v from server %v\n\n", msg.Msg, msg.SenderID)
+	if msg.SenderID < node.id{
+		*reply = Message{node.id, "No"}
+		if !node.electing{
+			go node.Elect()
+		}
+	} else if msg.Msg == "I am Coordinator"{
+		log.Println(msg.SenderID, "is the new Coordinator")
+		node.Coordinator = msg.SenderID
+		node.Coord_chng = true
+		*reply = Message{node.id, "Ack"}
+		go node.ping()
+	}
+	return nil
+}
+
 func makeNode(id int) *Node {
 	all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
+	// all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
 	Coordinator := 2
-	curr_node := Node{id, all_ip, Coordinator, nil}
+	// Coordinator := 4
+	electing := false
+	var rpcChan [3]*rpc.Client
+	// var rpcChan [5]*rpc.Client
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false}
 
-	// allNodes[i].revChan = make(chan Message)
-	// allNodes[i].replyChan = make(chan Message)
-	// allNodes[i].quitElect = make(chan int)
-	// allNodes[i].killNode = make(chan int)
-	// allNodes[i].peers = allNodes
-	// allNodes[i].Coordinator = numNodes - 1
-	// allNodes[i].ClientChan = make(chan c.SelfIntroduction)
-	// allNodes[i].database = make(map[string]Lock)
-
-	// for i := 0; i < numNodes; i++ {
-	//    go allNodes[i].ping()
-	//    go allNodes[i].checkChannel()
-	// }
-
-	go curr_node.ping()
+	go curr_node.connect_all()
 
 	return &curr_node
+}
+
+func (n *Node) connect_all(){
+	for ind, curr_ip := range n.all_ip {
+		// Skip sending msg to self
+		if ind == n.id {
+			continue
+		}
+		curr_connect, err := rpc.Dial("tcp", curr_ip)
+		if err != nil {
+			log.Println("Cannot connect with server:", ind)
+			// curr_connect.Close()
+			continue
+		}
+		n.rpcChan[ind] = curr_connect
+	}
+	log.Println("rpcChan:", n.rpcChan)
+	go n.ping()
 }
 
 func send(msg Message, rpcChan *rpc.Client, send_id int) string {
@@ -88,50 +118,107 @@ func send(msg Message, rpcChan *rpc.Client, send_id int) string {
 	err := rpcChan.Call("Listener.GetLine", msg, &reply)
 	if err != nil {
 		if err.Error() == "connection is shut down" {
-			log.Println("yes")
+			log.Println("connection is shut down, starting election")
+			if !node.electing{
+				node.Coord_chng = false
+				go node.Elect()
+			}
+			return "error"
 		}
 		log.Printf("type: %T\n", err)
 		// log.Fatal(err)
 	}
-	log.Println("Does it reach here?")
 	log.Printf("Reply: %v, Data: %v\n", reply, reply.Data)
 	return reply.Data
+}
+
+func send_elect(msg Message, rpcChan *rpc.Client) string {
+	var reply Message
+	start_time:=time.Now()
+	for{
+		err := rpcChan.Call("Listener.Election", msg, &reply)
+		if err != nil {
+			if err.Error() == "connection is shut down" {
+				// log.Println("connection is shut down")
+				t := time.Now()
+				if (t.Sub(start_time)>(5*time.Second)){
+					return ""
+				}
+				continue
+			}
+			log.Printf("type: %T\n", err)
+			return ""
+			// log.Fatal(err)
+		}
+		break
+	}
+	log.Printf("Reply: %v, Message: %v\n", reply, reply.Msg)
+	return reply.Msg
+}
+
+func (n *Node) Elect() {
+	if n.Coordinator == n.id {
+		return
+	}
+	n.electing = true
+
+	// Establish connection with all higher ip servers
+	fmt.Println("Server:", n.id, "is starting Election")
+	// Check with other higher id servers
+	if n.id+1<len(n.all_ip){
+		for _, curr_connect := range n.rpcChan[n.id+1:] {
+			if curr_connect != nil{
+				log.Println("Server", n.id, "is requesting to be Coordinator")
+				// Start connection protocol
+				reply := send_elect(Message{n.id, "Can I be Coordinator?"}, curr_connect)
+				log.Println("Server", n.id, "Received reply:", reply)
+				if reply == "No"{
+					n.electing = false
+					<- time.After(time.Second*5)
+					log.Println("Has Coordinator changed?", n.Coord_chng)
+					if !n.Coord_chng && !n.electing{
+						go n.Elect()
+						return
+					}
+					return
+				}
+			}
+		}
+	}
+	// If you are the highest id server/higher id server did not reply, broadcast that you are the master
+	for ind, curr_connect := range n.rpcChan {
+		// Skip sending msg to self
+		if ind == n.id {
+			continue
+		}
+		if curr_connect == nil{
+			continue
+		}
+		send_elect(Message{n.id, "I am Coordinator"}, curr_connect)
+	}
+	// Set self to be coordinator
+	n.Coordinator = n.id
+	// Stop election
+	n.electing = false
 }
 
 func (n *Node) ping() {
 	if n.Coordinator == n.id {
 		return
 	}
-
-	// Establish connection with new Coordinator
-	server, err := rpc.Dial("tcp", n.all_ip[n.Coordinator])
-	if err != nil {
-		log.Fatal(err)
-	}
-	n.rpcChan = server
-
 	log.Println("Server", n.id, "is pinging Coordinator:", n.Coordinator)
 	// Start connection protocol
 	for {
 		<-time.After(5 * time.Second)
-		reply := send(Message{n.id, "ping"}, n.rpcChan, n.Coordinator)
+		reply := send(Message{n.id, "ping"}, n.rpcChan[n.Coordinator], n.Coordinator)
+		if reply == "error"{
+			return
+		}
 		log.Printf("Received reply from Coordinator: %v", reply)
 	}
-	// Close the connection to server
-	n.rpcChan.Close()
-	// for {
-	//    // fmt.Println("peers: ", n.peers)
-	//    fmt.Println("node: ", n.id, "is pinging master server: ", n.Coordinator)
-	//    select{
-	//    case n.peers[n.Coordinator].revChan<-Message{n.id, "Are you alive?"}:
-	//       time.Sleep(time.Second * 3)
-	//    case <-time.After(time.Second * 10):
-	//       n.elect()
-	//    case <-n.killNode:
-	//       return
-	//    }
-	// }
 }
+
+var node *Node
 
 func main() {
 	// addy, err := net.ResolveTCPAddr("tcp", "172.20.0.2:12345")
@@ -146,7 +233,7 @@ func main() {
 
 	log.Println("Server", id, "is running")
 
-	go makeNode(id)
+	node = makeNode(id)
 
 	// inbound, err := net.Listen("tcp", "172.22.0.3:1234")
 	inbound, err := net.Listen("tcp", ip_addr)

@@ -5,6 +5,11 @@ services:
             context: ./server/
             dockerfile: Dockerfile.server0
         container_name: server0
+        depends_on:
+            - "server1"
+            - "server2"
+            # - "server3"
+            # - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.7
@@ -13,6 +18,10 @@ services:
             context: ./server/
             dockerfile: Dockerfile.server1
         container_name: server1
+        depends_on:
+            - "server2"
+            # - "server3"
+            # - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.3
@@ -21,6 +30,9 @@ services:
             context: ./server/
             dockerfile: Dockerfile.server2
         container_name: server2
+        # depends_on:
+        #     - "server3"
+        #     - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.4
@@ -29,6 +41,8 @@ services:
     #         context: ./server/
     #         dockerfile: Dockerfile.server3
     #     container_name: server3
+    #     depends_on:
+    #         - "server4"
     #     networks:
     #         static-network:
     #             ipv4_address: 172.22.0.5
@@ -49,9 +63,9 @@ services:
         depends_on:
             - "server0"
             - "server1"
+            - "server2"
             # - "server3"
             # - "server4"
-            # - "server5"
         ports:
             - "12346:12346"
         networks:
