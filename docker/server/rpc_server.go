@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+	bolt "go.etcd.io/bbolt"
+	"io"
 )
 
 type Listener int
@@ -225,6 +227,99 @@ func (n *Node) ping() {
 	}
 }
 
+func InitializeDB(nodenumber int) string {
+	nodenumber_str := strconv.Itoa(nodenumber) //Init DB
+	var dbname_temp = "Node-db"
+	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
+	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err!= nil{
+		log.Fatal(err)
+	}
+	defer db.Close()
+	fmt.Println("DB Initialized for server", nodenumber_str)
+	return dbfilename
+}
+
+func WriteToDB(dbfilename string, key,value [] byte){   //if Key-value alerady exists, the value will get updated
+
+	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err!= nil{
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	bucketname_byte := []byte("bucket")
+	err = db.Update(func(tx *bolt.Tx) error {  //Init Bucket
+        bucket, err := tx.CreateBucketIfNotExists(bucketname_byte)
+        if err != nil {
+            return err
+        }
+		err = bucket.Put(key, value)
+        if err != nil {
+            return err
+        }
+		fmt.Println("Key value successfully written to",dbfilename)
+		return nil
+    })
+
+	if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func GetValueFromDB(dbfilename string, key [] byte){
+	bucketname_byte := []byte("bucket")
+	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err!= nil{
+		log.Fatal(err)
+	}
+	defer db.Close()
+	// // retrieve the data
+	err = db.View(func(tx *bolt.Tx) error {
+        bucket := tx.Bucket(bucketname_byte)
+        if bucket == nil {
+            return fmt.Errorf("Bucket not found")
+        }
+        val := bucket.Get(key)
+		if val!=nil{
+			fmt.Println(string(val))
+		}else{
+			fmt.Println("Key value does not exist")
+		}
+        return nil
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func PropogateMaster(masterDBfilename string,currentServerNodenumber int){
+	nodenumber_str := strconv.Itoa(currentServerNodenumber) 
+	var dbname_temp = "Node-db"
+	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
+	os.Remove(dbfilename)
+	
+	sourceFile, err := os.Open(masterDBfilename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sourceFile.Close()
+	
+	// Create new file
+	newFile, err := os.Create(dbfilename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer newFile.Close()
+
+	bytesCopied, err := io.Copy(newFile, sourceFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Master copy propogated. Copied %d bytes.", bytesCopied)
+
+}
+
 var node *Node
 
 func main() {
@@ -241,6 +336,11 @@ func main() {
 	log.Println("Server", id, "is running")
 
 	node = makeNode(id)
+	dbfilename := InitializeDB(id)
+	key := []byte("Marco")
+    value := []byte("Polo")
+	WriteToDB(dbfilename,key,value)
+	GetValueFromDB(dbfilename,key)
 
 	// inbound, err := net.Listen("tcp", "172.22.0.3:1234")
 	inbound, err := net.Listen("tcp", ip_addr)
