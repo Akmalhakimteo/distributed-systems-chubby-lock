@@ -29,14 +29,14 @@ type Client struct {
 }
 
 type Node struct {
-	id          int
-	all_ip      [3]string
+	id     int
+	all_ip [3]string
 	// all_ip      [5]string
 	Coordinator int
-	electing 	bool
-	rpcChan     [3]*rpc.Client
+	electing    bool
+	rpcChan     [3]*rpc.Client //connection channels within servers
 	// rpcChan     [5]*rpc.Client
-	Coord_chng	bool
+	Coord_chng bool
 	// revChan chan Message
 	// replyChan chan Message
 	// ClientChan chan c.SelfIntroduction
@@ -63,14 +63,21 @@ func (l *Listener) Keepalive(c *Client, reply *Reply) error {
 	return nil
 }
 
+func (l *Listener) GetCoordinator(c *Client, reply *Reply) error {
+	fmt.Printf("Received: Client %v is asking for new coordinator.\n", c.id)
+	concat := "New Coordinator is: " + strconv.Itoa(node.Coordinator)
+	*reply = Reply{concat}
+	return nil
+}
+
 func (l *Listener) Election(msg Message, reply *Message) error {
 	fmt.Printf("Received: %v from server %v\n\n", msg.Msg, msg.SenderID)
-	if msg.SenderID < node.id{
+	if msg.SenderID < node.id {
 		*reply = Message{node.id, "No"}
-		if !node.electing{
+		if !node.electing {
 			go node.Elect()
 		}
-	} else if msg.Msg == "I am Coordinator"{
+	} else if msg.Msg == "I am Coordinator" {
 		log.Println(msg.SenderID, "is the new Coordinator")
 		node.Coordinator = msg.SenderID
 		node.Coord_chng = true
@@ -95,7 +102,7 @@ func makeNode(id int) *Node {
 	return &curr_node
 }
 
-func (n *Node) connect_all(){
+func (n *Node) connect_all() {
 	for ind, curr_ip := range n.all_ip {
 		// Skip sending msg to self
 		if ind == n.id {
@@ -119,7 +126,7 @@ func send(msg Message, rpcChan *rpc.Client, send_id int) string {
 	if err != nil {
 		if err.Error() == "connection is shut down" {
 			log.Println("connection is shut down, starting election")
-			if !node.electing{
+			if !node.electing {
 				node.Coord_chng = false
 				go node.Elect()
 			}
@@ -134,14 +141,14 @@ func send(msg Message, rpcChan *rpc.Client, send_id int) string {
 
 func send_elect(msg Message, rpcChan *rpc.Client) string {
 	var reply Message
-	start_time:=time.Now()
-	for{
+	start_time := time.Now()
+	for {
 		err := rpcChan.Call("Listener.Election", msg, &reply)
 		if err != nil {
 			if err.Error() == "connection is shut down" {
 				// log.Println("connection is shut down")
 				t := time.Now()
-				if (t.Sub(start_time)>(5*time.Second)){
+				if t.Sub(start_time) > (5 * time.Second) {
 					return ""
 				}
 				continue
@@ -165,18 +172,18 @@ func (n *Node) Elect() {
 	// Establish connection with all higher ip servers
 	fmt.Println("Server:", n.id, "is starting Election")
 	// Check with other higher id servers
-	if n.id+1<len(n.all_ip){
+	if n.id+1 < len(n.all_ip) {
 		for _, curr_connect := range n.rpcChan[n.id+1:] {
-			if curr_connect != nil{
+			if curr_connect != nil {
 				log.Println("Server", n.id, "is requesting to be Coordinator")
 				// Start connection protocol
 				reply := send_elect(Message{n.id, "Can I be Coordinator?"}, curr_connect)
 				log.Println("Server", n.id, "Received reply:", reply)
-				if reply == "No"{
+				if reply == "No" {
 					n.electing = false
-					<- time.After(time.Second*5)
+					<-time.After(time.Second * 5)
 					log.Println("Has Coordinator changed?", n.Coord_chng)
-					if !n.Coord_chng && !n.electing{
+					if !n.Coord_chng && !n.electing {
 						go n.Elect()
 						return
 					}
@@ -191,7 +198,7 @@ func (n *Node) Elect() {
 		if ind == n.id {
 			continue
 		}
-		if curr_connect == nil{
+		if curr_connect == nil {
 			continue
 		}
 		send_elect(Message{n.id, "I am Coordinator"}, curr_connect)
@@ -211,7 +218,7 @@ func (n *Node) ping() {
 	for {
 		<-time.After(5 * time.Second)
 		reply := send(Message{n.id, "ping"}, n.rpcChan[n.Coordinator], n.Coordinator)
-		if reply == "error"{
+		if reply == "error" {
 			return
 		}
 		log.Printf("Received reply from Coordinator: %v", reply)
