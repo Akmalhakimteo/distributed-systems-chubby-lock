@@ -2,14 +2,15 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
 	"strconv"
 	"time"
+
 	bolt "go.etcd.io/bbolt"
-	"io"
 )
 
 type Listener int
@@ -28,6 +29,13 @@ type Client struct {
 	Coordinator      int
 	rpcChan          *rpc.Client
 	keepAliveRequest bool
+}
+
+type ClientRequest struct {
+	SenderID    int
+	Write       int // 1 = write request, 0 = read request
+	Filename    []byte
+	Filecontent []byte //empty for read request
 }
 
 type Node struct {
@@ -59,6 +67,21 @@ func (l *Listener) GetLine(msg Message, reply *Reply) error {
 	return nil
 }
 
+func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
+	if request.Write == 0 {
+		fmt.Printf("Received Read request from Client: %v for file: %v\n", request.SenderID, string(request.Filename))
+		msg := "Received Read Successful"
+		// should wait for propagation
+		*reply = Reply{msg}
+	} else if request.Write == 1 {
+		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
+		msg := "Received Write Successful"
+		// should wait for propagation
+		*reply = Reply{msg}
+	}
+	return nil
+}
+
 func (l *Listener) Keepalive(c *Client, reply *Reply) error {
 	fmt.Printf("Received: KeepAlive Request from client %v\n\n", c.id)
 	concat := "Received KeepAlive reply from server " + strconv.Itoa(c.Coordinator)
@@ -81,7 +104,7 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 			go node.Elect()
 		}
 	} else if msg.Msg == "I am Coordinator" {
-		if msg.SenderID > node.Coordinator{
+		if msg.SenderID > node.Coordinator {
 			log.Println(msg.SenderID, "is the new Coordinator")
 			node.Coordinator = msg.SenderID
 			node.Coord_chng = true
@@ -170,7 +193,7 @@ func send_elect(msg Message, rpcChan *rpc.Client) string {
 
 func (n *Node) Elect() {
 	// pause to allow for connection to establish
-	time.Sleep(5*time.Second)
+	time.Sleep(5 * time.Second)
 	// if n.Coordinator == n.id {
 	// 	return
 	// }
@@ -232,7 +255,7 @@ func (n *Node) ping(ind int) {
 			// attempt to re-establish connection within 5s
 			go n.connect(ind, n.all_ip[ind])
 			// Start election if not already in election
-			if !node.electing && ind==n.Coordinator{
+			if !node.electing && ind == n.Coordinator {
 				log.Println("starting election")
 				node.Coordinator = -1
 				node.Coord_chng = false
@@ -248,8 +271,8 @@ func InitializeDB(nodenumber int) string {
 	nodenumber_str := strconv.Itoa(nodenumber) //Init DB
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
-	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
-	if err!= nil{
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
@@ -257,71 +280,71 @@ func InitializeDB(nodenumber int) string {
 	return dbfilename
 }
 
-func WriteToDB(dbfilename string, key,value [] byte){   //if Key-value alerady exists, the value will get updated
+func WriteToDB(dbfilename string, key, value []byte) { //if Key-value alerady exists, the value will get updated
 
-	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
-	if err!= nil{
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
 	bucketname_byte := []byte("bucket")
-	err = db.Update(func(tx *bolt.Tx) error {  //Init Bucket
-        bucket, err := tx.CreateBucketIfNotExists(bucketname_byte)
-        if err != nil {
-            return err
-        }
+	err = db.Update(func(tx *bolt.Tx) error { //Init Bucket
+		bucket, err := tx.CreateBucketIfNotExists(bucketname_byte)
+		if err != nil {
+			return err
+		}
 		err = bucket.Put(key, value)
-        if err != nil {
-            return err
-        }
-		fmt.Println("Key value successfully written to",dbfilename)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Key value successfully written to", dbfilename)
 		return nil
-    })
+	})
 
 	if err != nil {
-        log.Fatal(err)
-    }
+		log.Fatal(err)
+	}
 }
 
-func GetValueFromDB(dbfilename string, key [] byte){
+func GetValueFromDB(dbfilename string, key []byte) {
 	bucketname_byte := []byte("bucket")
-	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
-	if err!= nil{
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 	// // retrieve the data
 	err = db.View(func(tx *bolt.Tx) error {
-        bucket := tx.Bucket(bucketname_byte)
-        if bucket == nil {
-            return fmt.Errorf("Bucket not found")
-        }
-        val := bucket.Get(key)
-		if val!=nil{
+		bucket := tx.Bucket(bucketname_byte)
+		if bucket == nil {
+			return fmt.Errorf("Bucket not found")
+		}
+		val := bucket.Get(key)
+		if val != nil {
 			fmt.Println(string(val))
-		}else{
+		} else {
 			fmt.Println("Key value does not exist")
 		}
-        return nil
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func PropogateMaster(masterDBfilename string,currentServerNodenumber int){
-	nodenumber_str := strconv.Itoa(currentServerNodenumber) 
+func PropogateMaster(masterDBfilename string, currentServerNodenumber int) {
+	nodenumber_str := strconv.Itoa(currentServerNodenumber)
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
 	os.Remove(dbfilename)
-	
+
 	sourceFile, err := os.Open(masterDBfilename)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer sourceFile.Close()
-	
+
 	// Create new file
 	newFile, err := os.Create(dbfilename)
 	if err != nil {
@@ -365,23 +388,23 @@ func main() {
 
 }
 
-func (n *Node) sample_write(key []byte, value []byte){
-	WriteToDB(n.dbfilename,key,value)
+func (n *Node) sample_write(key []byte, value []byte) {
+	WriteToDB(n.dbfilename, key, value)
 }
 
-func (n *Node) sample_get(key []byte){
-	GetValueFromDB(n.dbfilename,key)
+func (n *Node) sample_get(key []byte) {
+	GetValueFromDB(n.dbfilename, key)
 }
 
 // Attempts to connect with the ip address for 5s, gives up otherwise
-func (n *Node) connect(ind int, curr_ip string){
+func (n *Node) connect(ind int, curr_ip string) {
 	start_time := time.Now()
-	for{
+	for {
 		curr_connect, err := rpc.Dial("tcp", curr_ip)
 		if err != nil {
 			end_time := time.Now()
 			elapsed := end_time.Sub(start_time)
-			if elapsed >= (5*time.Second){
+			if elapsed >= (5 * time.Second) {
 				log.Println("Cannot connect with server:", ind, "within 5s")
 				return
 			}

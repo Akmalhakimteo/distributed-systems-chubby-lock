@@ -24,13 +24,62 @@ type Client struct {
 	all_ip      [3]string
 }
 
-func SendKeepAlive(client *Client, serverInt int) {
+type ClientRequest struct {
+	SenderID    int
+	Write       int // 1 = write request, 0 = read request
+	Filename    []byte
+	Filecontent []byte //empty for read request
+}
+
+// Client Read Request
+// Client should send: filename string
+func (client *Client) SendReadRequest(filename []byte) {
+	ReadRequest := ClientRequest{SenderID: client.id, Write: 0, Filename: filename, Filecontent: nil}
+	var ReadReply Reply
+	readrequest_err := client.rpcChan.Call("Listener.GetRequest", ReadRequest, &ReadReply)
+	if readrequest_err != nil {
+		fmt.Printf("Client Read Request Failed")
+	}
+	// wait for ack
+	// log.Printf(ReadReply.Data)
+}
+
+// Client Write Request
+// Client should send: filename string, value []byte
+func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
+	WriteRequest := ClientRequest{SenderID: client.id, Write: 1, Filename: filename, Filecontent: filecontent}
+	var WriteReply Reply
+	writerequest_err := client.rpcChan.Call("Listener.GetRequest", WriteRequest, &WriteReply)
+	if writerequest_err != nil {
+		fmt.Printf("Client Write Request Failed")
+	}
+	// wait for ack
+	// log.Printf(WriteReply.Data)
+}
+
+func (client *Client) GetCoordinator() {
+	var CoordinatorReply Reply
+	client.rpcChan.Call("Listener.GetCoordinator", &client, &CoordinatorReply)
+	time.Sleep(time.Second * 5)
+	log.Printf(CoordinatorReply.Data)
+	newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
+	newCoordinatorInt, err := strconv.Atoi(newCoordinator)
+	if err != nil {
+		fmt.Println("Int conversion error")
+	}
+	if newCoordinatorInt == -1 {
+		client.GetCoordinator()
+	} else {
+		client.Coordinator = newCoordinatorInt
+	}
+}
+
+func (client *Client) SendKeepAlive(serverInt int) {
 	var KeepAliveReply Reply
 	keepalive_err := client.rpcChan.Call("Listener.Keepalive", &client, &KeepAliveReply)
 	time.Sleep(time.Second * 5)
 	log.Printf(KeepAliveReply.Data)
 	if keepalive_err != nil {
-		var newCoordinatorInt int
 		fmt.Printf("server node %v died\n", serverInt)
 		// get new coordinator
 		for ind, curr_ip := range client.all_ip {
@@ -41,26 +90,17 @@ func SendKeepAlive(client *Client, serverInt int) {
 			}
 			client.rpcChan = clientChan
 
-			var CoordinatorReply Reply
-			client.rpcChan.Call("Listener.GetCoordinator", &client, &CoordinatorReply)
-			time.Sleep(time.Second * 5)
-			log.Printf(CoordinatorReply.Data)
-			newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
-			newCoordinatorInt, err = strconv.Atoi(newCoordinator)
-			client.Coordinator = newCoordinatorInt
-			if err != nil {
-				fmt.Println("hello?")
-			}
-			clientChan, err = rpc.Dial("tcp", client.all_ip[newCoordinatorInt])
+			client.GetCoordinator()
+			clientChan, err = rpc.Dial("tcp", client.all_ip[client.Coordinator])
 			if err != nil {
 				fmt.Printf("client connection with server %v error\n", client.Coordinator)
 			}
 			client.rpcChan = clientChan
-			SendKeepAlive(client, newCoordinatorInt)
+			client.SendKeepAlive(client.Coordinator)
 			break
 		}
 	} else {
-		SendKeepAlive(client, serverInt)
+		client.SendKeepAlive(serverInt)
 	}
 }
 
@@ -76,88 +116,19 @@ func main() {
 		fmt.Printf("client connection with server %v error\n", client.Coordinator)
 	}
 	client.rpcChan = clientChan
-	SendKeepAlive(&client, client.Coordinator)
-	// clientChan, err := rpc.Dial("tcp", client.all_ip[2])
-	// if err != nil {
-	// 	log.Fatal("client connection with server 2 error")
-	// }
-	// client.rpcChan = clientChan
 
-	// //Client first exchange keepalives with Node/Server 2
-	// for {
-	// 	//keepalive
-	// 	var KeepAliveReply Reply
-	// 	keepalive_err := client.rpcChan.Call("Listener.Keepalive", &client, &KeepAliveReply)
-	// 	time.Sleep(time.Second * 5)
-	// 	log.Printf(KeepAliveReply.Data)
+	readfilename := []byte("read.txt")
+	writefilename := []byte("write.txt")
+	writecontents := []byte("hello i wrote these")
 
-	// 	if keepalive_err != nil {
-	// 		fmt.Println("server node died")
+	//client read request
+	client.SendReadRequest(readfilename)
 
-	// 		// Client needs to communicate with chubby cell to find out new coordinator
-	// 		for ind, curr_ip := range client.all_ip {
-	// 			client.rpcChan, err = rpc.Dial("tcp", curr_ip)
-	// 			if err != nil {
-	// 				log.Println("Cannot connect with Server: ", ind)
-	// 				continue
-	// 			}
+	//client write request
+	client.SendWriteRequest(writefilename, writecontents)
 
-	// 			var CoordinatorReply Reply
-	// 			client.rpcChan.Call("Listener.GetCoordinator", &client, &CoordinatorReply)
-	// 			time.Sleep(time.Second * 5)
-	// 			log.Printf(CoordinatorReply.Data)
-	// 			newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
-	// 			newCoordinatorInt, err := strconv.Atoi(newCoordinator)
-	// 			if err != nil {
-	// 				fmt.Println("hello?")
-	// 			}
-	// 			// Establish new connection with new coordinator
-	// 			for {
-	// 				var KeepAliveReply Reply
-	// 				clientChan, err := rpc.Dial("tcp", client.all_ip[newCoordinatorInt])
-	// 				if err != nil {
-	// 					log.Fatal("client connection with server 1 error")
-	// 				}
-	// 				client.rpcChan = clientChan
-	// 				client.Coordinator = newCoordinatorInt
-	// 				keepalive_err := client.rpcChan.Call("Listener.Keepalive", &client, &KeepAliveReply)
-	// 				if keepalive_err != nil {
-	// 					log.Fatal(keepalive_err)
-	// 					log.Fatal("server node died again")
-	// 				}
-	// 				time.Sleep(time.Second * 5)
-	// 				log.Printf(KeepAliveReply.Data)
-	// 			}
-	// 		}
-	// 	}
-	// }
-	// i := 2
-	// for {
-	// 	clientChan, err := rpc.Dial("tcp", client.all_ip[i])
-	// 	if err != nil {
-	// 		log.Println("Cannot connect with Server: ", i)
-	// 	}
-	// 	client.rpcChan = clientChan
+	time.Sleep(time.Second * 5)
 
-	// 	//keepalive
-	// 	var KeepAliveReply Reply
-	// 	keepalive_err := client.rpcChan.Call("Listener.Keepalive", &client, &KeepAliveReply)
-	// 	time.Sleep(time.Second * 5)
-	// 	log.Printf(KeepAliveReply.Data)
-
-	// 	if keepalive_err != nil {
-	// 		fmt.Println("server node died")
-	// 		var CoordinatorReply Reply
-	// 		client.rpcChan.Call("Listener.GetCoordinator", &client, &CoordinatorReply)
-	// 		log.Printf(CoordinatorReply.Data)
-	// 		newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
-	// 		newCoordinatorInt, err := strconv.Atoi(newCoordinator)
-	// 		if err != nil {
-	// 			fmt.Printf("Error getting new coordinator %v", newCoordinatorInt)
-	// 		}
-	// 		i = newCoordinatorInt
-	// 		continue
-	// 	}
-	// }
+	client.SendKeepAlive(client.Coordinator)
 
 }
