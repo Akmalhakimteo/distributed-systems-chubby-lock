@@ -38,6 +38,12 @@ type ClientRequest struct {
 	Filecontent []byte //empty for read request
 }
 
+type DatabaseData struct {
+	SenderID     int
+	FileNames    [][]byte
+	FileContents [][]byte
+}
+
 type Node struct {
 	id     int
 	all_ip [3]string
@@ -74,9 +80,25 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		// should wait for propagation
 		*reply = Reply{msg}
 	} else if request.Write == 1 {
+		start_time := time.Now()
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
-		msg := "Received Write Successful"
-		// should wait for propagation
+		var msg string
+		success := node.clientWriteReq(ClientRequest{node.Coordinator, 1, request.Filename, request.Filecontent})
+		// wait for propagation
+		for {
+			if success {
+				msg = "Received Write Successful"
+				break
+			}
+			//TODO: implement fail msg
+			//if success == false {}
+			//Timeout of 10s on client side
+			t := time.Now()
+			if t.Sub(start_time) > (10*time.Second) || !success {
+				msg = "Received Write Failed"
+				break
+			}
+		}
 		*reply = Reply{msg}
 	}
 	return nil
@@ -112,6 +134,18 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 			// go node.ping()
 		}
 	}
+	return nil
+}
+
+//message will contain new file data
+func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
+	if len(file.FileNames) > 1 {
+		fmt.Printf("Received: DB from Master Server %v.\n", file.SenderID)
+	} else {
+		fmt.Printf("Received: file %v from Master Server %v.\n", file.FileNames[0], file.SenderID)
+	}
+	//should wait for DB to finish updating
+	*reply = Reply{"ACK"}
 	return nil
 }
 
@@ -357,6 +391,73 @@ func PropogateMaster(masterDBfilename string, currentServerNodenumber int) {
 		log.Fatal(err)
 	}
 	log.Printf("Master copy propogated. Copied %d bytes.", bytesCopied)
+
+}
+
+//only master will call this function
+//function to handle write request from client
+func (n *Node) clientWriteReq(d ClientRequest) bool {
+	fmt.Println("Server:", d.SenderID, "is forwarding write to other servers")
+	count := 0
+	for ind, curr_connect := range n.rpcChan {
+		if ind == n.id {
+			continue
+		}
+		if curr_connect == nil {
+			continue
+		}
+		reply := sendWriteData(DatabaseData{n.id, [][]byte{d.Filename}, [][]byte{d.Filecontent}}, curr_connect)
+		log.Println("Server", d.SenderID, "Received reply:", reply)
+		if reply == "FAIL" {
+			return false
+		} else if reply == "ACK" {
+			count++
+		}
+	}
+	if count == 4 {
+		return true
+	}
+	//something has failed and should call master propogate
+	//TODO:master propagate db
+	return false
+}
+
+func sendWriteData(d DatabaseData, rpcChan *rpc.Client) string {
+	var reply Reply
+	start_time := time.Now()
+	for {
+		err := rpcChan.Call("Listener.MasterWrite", d, &reply)
+		if err != nil {
+			if err.Error() == "connection is shut down" {
+				log.Println("server node has died, write will fail")
+				return "FAIL"
+			}
+			t := time.Now()
+			//internode time out of 5s
+			if t.Sub(start_time) > (5 * time.Second) {
+				return "FAIL"
+			}
+		}
+		break
+	}
+	log.Printf("Reply: %v, Message: %v\n", reply, reply.Data)
+	return reply.Data
+}
+
+//rollback event
+//when master does not receive ACK from all servers
+//->they shoud revert to their previous state (copy from master)->master hasnt updated
+// called at master and master propogates to all nodes that have sent ACK to previous client write
+func (n *Node) masterPropogateDB() {
+	if n.Coordinator != n.id {
+		return
+	}
+	//master fetch own db
+
+	//call channels with other servers
+	//send through db and wait for ack
+
+	//only continue on when all ack
 
 }
 
