@@ -9,11 +9,16 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"sync"
+	"errors"
 
 	bolt "go.etcd.io/bbolt"
 )
 
 type Listener int
+
+// ErrNoSuchLock is returned when the requested lock does not exist
+var ErrNoSuchLock = errors.New("no such lock")
 
 type Reply struct {
 	Data string
@@ -54,6 +59,7 @@ type Node struct {
 	// rpcChan     [5]*rpc.Client
 	Coord_chng bool
 	dbfilename string
+	// lock       Maplock
 	// revChan chan Message
 	// replyChan chan Message
 	// ClientChan chan c.SelfIntroduction
@@ -63,6 +69,18 @@ type Node struct {
 	// AllClients []chan c.File
 	// FileChan chan c.File
 	// database map[string]Lock
+}
+// Maplock provides a locking mechanism based on the passed in file name
+type Maplock struct {
+	mu    sync.Mutex  //might not need this 
+	locks map[string]*lockCtr //string is the file name, lockctr is the lock object
+}
+
+// lockCtr is used by Maplock to represent a lock with a given name.
+type lockCtr struct {
+	mu sync.Mutex  //don't need this also 
+	clientID int    //-1 when no client holding 
+	sequenceNo int
 }
 
 func (l *Listener) GetLine(msg Message, reply *Reply) error {
@@ -79,15 +97,22 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		msg := "Received Read Successful"
 		// should wait for propagation
 		*reply = Reply{msg}
-	} else if request.Write == 1 {
+	} else if request.Write == 1 { //TODO: CHECK LOCK 
 		start_time := time.Now()
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
+		m := New() //create a new lock 
+		m.Lock(string(request.Filename))
+		// fmt.Printf(v)
+		fmt.Printf(string(request.Filename), " is locked")
+
 		var msg string
 		success := node.clientWriteReq(ClientRequest{node.Coordinator, 1, request.Filename, request.Filecontent})
 		// wait for propagation
 		for {
 			if success {
 				msg = "Received Write Successful"
+				//TODO: RELEASE LOCK
+				m.Unlock(string(request.Filename))
 				break
 			}
 			//TODO: implement fail msg
@@ -96,6 +121,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+				//TODO: RELEASE LOCK
 				break
 			}
 		}
@@ -459,6 +485,56 @@ func (n *Node) masterPropogateDB() {
 
 	//only continue on when all ack
 
+}
+
+// Lock locks the mutex
+func (l *lockCtr) Lock() {
+	l.mu.Lock()
+}
+
+// Unlock unlocks the mutex
+func (l *lockCtr) Unlock() {
+	l.mu.Unlock()
+}
+
+// New creates a new Maplock
+func New() *Maplock {
+	return &Maplock{
+		locks: make(map[string]*lockCtr),
+	}
+}
+
+// Lock locks a mutex with the given name. If it doesn't exist, one is created
+func (l *Maplock) Lock(name string) {
+	l.mu.Lock()
+	if l.locks == nil {
+		l.locks = make(map[string]*lockCtr)
+	}
+
+	nameLock, exists := l.locks[name]
+	if !exists {
+		nameLock = &lockCtr{}
+		l.locks[name] = nameLock
+	}
+	// this makes sure that the lock isn't deleted if `Lock` and `Unlock` are called concurrently
+	l.mu.Unlock()
+
+	// Lock the nameLock outside the main mutex so we don't block other operations
+	nameLock.Lock()
+}
+
+// Unlock unlocks the mutex with the given name
+func (l *Maplock) Unlock(name string) error {
+	l.mu.Lock()
+	nameLock, exists := l.locks[name]
+	if !exists {
+		l.mu.Unlock()
+		return ErrNoSuchLock
+	}
+	nameLock.Unlock()
+
+	l.mu.Unlock()
+	return nil
 }
 
 var node *Node
