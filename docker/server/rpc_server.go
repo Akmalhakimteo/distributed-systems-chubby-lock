@@ -152,7 +152,8 @@ func (l * Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFil
 		log.Fatal(err)
 	}
 	CopyMasterFile("Master-db",node.id)
-	log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename)
+	log.Println("Updated Database of server",node.id)
+	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename)
 	// key := [] byte("key roomba")  //uncomment to check for file transfer ok
 	// GetValueFromDB(node.dbfilename,key)
 	return nil
