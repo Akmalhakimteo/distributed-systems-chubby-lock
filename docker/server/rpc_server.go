@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,14 +9,12 @@ import (
 	"os"
 	"strconv"
 	"time"
-
 	bolt "go.etcd.io/bbolt"
+	"io/ioutil"
+
 )
 
 type Listener int
-
-// ErrNoSuchLock is returned when the requested lock does not exist
-var ErrNoSuchLock = errors.New("no such lock")
 
 type Reply struct {
 	Data string
@@ -26,6 +23,12 @@ type Reply struct {
 type Message struct {
 	SenderID int
 	Msg      string
+}
+
+type MessageFileTransfer struct {
+	SenderID int
+	Msg      string
+	Bytedata [] byte
 }
 
 type Client struct {
@@ -58,7 +61,6 @@ type Node struct {
 	// rpcChan     [5]*rpc.Client
 	Coord_chng bool
 	dbfilename string
-	lock       Maplock
 	// revChan chan Message
 	// replyChan chan Message
 	// ClientChan chan c.SelfIntroduction
@@ -68,19 +70,6 @@ type Node struct {
 	// AllClients []chan c.File
 	// FileChan chan c.File
 	// database map[string]Lock
-}
-
-// Maplock provides a locking mechanism based on the passed in file name
-type Maplock struct {
-	// mu    sync.Mutex  //might not need this
-	locks map[string]lockCtr //string is the file name, lockctr is the lock object
-}
-
-// lockCtr is used by Maplock to represent a lock with a given name.
-type lockCtr struct {
-	// mu sync.Mutex  //don't need this also
-	clientID   int //-1 when no client holding
-	sequenceNo int
 }
 
 func (l *Listener) GetLine(msg Message, reply *Reply) error {
@@ -97,22 +86,15 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		msg := "Received Read Successful"
 		// should wait for propagation
 		*reply = Reply{msg}
-	} else if request.Write == 1 { //TODO: CHECK LOCK
+	} else if request.Write == 1 {
 		start_time := time.Now()
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
-		// m := New() //create a new lock
-		// m.Lock(string(request.Filename))
-		// fmt.Printf(v)
-		fmt.Printf(string(request.Filename), " is locked")
-
 		var msg string
 		success := node.clientWriteReq(ClientRequest{node.Coordinator, 1, request.Filename, request.Filecontent})
 		// wait for propagation
 		for {
 			if success {
 				msg = "Received Write Successful"
-				//TODO: RELEASE LOCK
-				// m.Unlock(string(request.Filename))
 				break
 			}
 			//TODO: implement fail msg
@@ -121,7 +103,6 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
-				//TODO: RELEASE LOCK
 				break
 			}
 		}
@@ -163,6 +144,25 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 	return nil
 }
 
+func (l * Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
+	fmt.Printf("Received: %v Master update from server %v\n\n", msg.Msg, msg.SenderID)
+	// log.Println("Receiving over bytes: ",msg.Bytedata)
+	err := ioutil.WriteFile("Master-db", msg.Bytedata, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	CopyMasterFile("Master-db",node.id)
+	log.Println("Updated Database of server",node.id)
+	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename)
+	// key := [] byte("key roomba")  //uncomment to check for file transfer ok
+	// GetValueFromDB(node.dbfilename,key)
+	return nil
+}
+
+
+
+
+
 //message will contain new file data
 func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 	if len(file.FileNames) > 1 {
@@ -184,13 +184,16 @@ func makeNode(id int) *Node {
 	var rpcChan [3]*rpc.Client
 	// var rpcChan [5]*rpc.Client
 	dbfilename := InitializeDB(id)
-
-	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, Maplock{}}
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename}
 
 	go curr_node.connect_all()
+	
+	
 
 	return &curr_node
 }
+
+
 
 func (n *Node) connect_all() {
 	for ind, curr_ip := range n.all_ip {
@@ -252,6 +255,22 @@ func send_elect(msg Message, rpcChan *rpc.Client) string {
 	return reply.Msg
 }
 
+func MasterSendPropogate(msg MessageFileTransfer, rpcChan  *rpc.Client ){ //Master Send DB to SINGLE server
+	var reply Message
+	for {
+		err := rpcChan.Call("Listener.MasterPropogateDB", msg, &reply)
+		log.Printf("Master ping to servers: Follow master copy")
+		if err != nil {
+			log.Printf("Error occured while pinging for propogate")
+		}
+		break
+	}
+}
+
+
+
+
+
 func (n *Node) Elect() {
 	// pause to allow for connection to establish
 	time.Sleep(5 * time.Second)
@@ -296,8 +315,29 @@ func (n *Node) Elect() {
 	}
 	// Set self to be coordinator
 	n.Coordinator = n.id
+	// n.RunPropogateMaster() //uncomment to simulate
 	// Stop election
 	n.electing = false
+}
+
+func (n *Node) RunPropogateMaster(){ //Yx Call this only when you want to propogate Master DB to ALL servers
+	// key := [] byte("key roomba") //uncomment to check for file transfer ok
+	// value := [] byte("value samba")
+	// WriteToDB(n.dbfilename,key,value)
+	masterFile, err := os.Open(n.dbfilename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	masterFileInBytes,err := ioutil.ReadAll(masterFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	sendThis := MessageFileTransfer{n.id,"Servers, follow my master copy",masterFileInBytes}
+	for _, curr_connect := range n.rpcChan {
+		if curr_connect != nil {
+			MasterSendPropogate(sendThis,curr_connect)
+		}
+	}
 }
 
 func (n *Node) ping(ind int) {
@@ -338,10 +378,19 @@ func InitializeDB(nodenumber int) string {
 	}
 	defer db.Close()
 	fmt.Println("DB Initialized for server", nodenumber_str)
+	bucketname_byte := []byte("bucket")
+	err = db.Update(func(tx *bolt.Tx) error {  //Init Bucket
+        _, err := tx.CreateBucketIfNotExists(bucketname_byte)
+        if err != nil {
+            return err
+        }
+		fmt.Println("Bucket Initialized for server", nodenumber_str)
+		return nil
+    })
 	return dbfilename
 }
 
-func WriteToDB(dbfilename string, key, value []byte) { //if Key-value alerady exists, the value will get updated
+func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value alerady exists, the value will get updated
 
 	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
@@ -364,8 +413,9 @@ func WriteToDB(dbfilename string, key, value []byte) { //if Key-value alerady ex
 	})
 
 	if err != nil {
-		log.Fatal(err)
-	}
+        log.Fatal(err)
+    }
+	return err
 }
 
 func GetValueFromDB(dbfilename string, key []byte) {
@@ -394,8 +444,8 @@ func GetValueFromDB(dbfilename string, key []byte) {
 	}
 }
 
-func PropogateMaster(masterDBfilename string, currentServerNodenumber int) {
-	nodenumber_str := strconv.Itoa(currentServerNodenumber)
+func CopyMasterFile(masterDBfilename string,currentServerNodenumber int){
+	nodenumber_str := strconv.Itoa(currentServerNodenumber) 
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
 	os.Remove(dbfilename)
@@ -405,7 +455,6 @@ func PropogateMaster(masterDBfilename string, currentServerNodenumber int) {
 		log.Fatal(err)
 	}
 	defer sourceFile.Close()
-
 	// Create new file
 	newFile, err := os.Create(dbfilename)
 	if err != nil {
@@ -418,6 +467,8 @@ func PropogateMaster(masterDBfilename string, currentServerNodenumber int) {
 		log.Fatal(err)
 	}
 	log.Printf("Master copy propogated. Copied %d bytes.", bytesCopied)
+	os.Remove(masterDBfilename)
+    
 
 }
 
@@ -488,74 +539,6 @@ func (n *Node) masterPropogateDB() {
 
 }
 
-// Lock locks the mutex
-// func (l *lockCtr) Lock() {
-// 	l.mu.Lock()
-// }
-
-// // Unlock unlocks the mutex
-// func (l *lockCtr) Unlock() {
-// 	l.mu.Unlock()
-// }
-
-// // New creates a new Maplock
-// func New() *Maplock {
-// 	return &Maplock{
-// 		locks: make(map[string]*lockCtr),
-// 	}
-// }
-
-// Lock locks a mutex with the given name. If it doesn't exist, one is created
-func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) {
-	// // l.mu.Lock()
-	// if l.locks == nil {
-	// 	l.locks = make(map[string]*lockCtr)
-	// }
-
-	// nameLock, exists := l.locks[name]
-	// if !exists {
-	// 	nameLock = &lockCtr{}
-	// 	l.locks[name] = nameLock
-	// }
-	// // this makes sure that the lock isn't deleted if `Lock` and `Unlock` are called concurrently
-	// l.mu.Unlock()
-
-	// // Lock the nameLock outside the main mutex so we don't block other operations
-	// nameLock.Lock()
-	// Lock := node.lock
-
-	lock, exist := node.lock.locks[string(request.Filename)]
-	if exist {
-		avail := lock.clientID
-		if avail == -1 {
-			//no one has the lock
-			lock.clientID = request.SenderID
-			*reply = Reply{"You can have the lock"}
-		} else {
-			*reply = Reply{"Someone else has the lock"}
-		}
-	} else {
-		lock.clientID = request.SenderID
-		lock.sequenceNo = 0
-		*reply = Reply{"You can have the lock"}
-	}
-
-}
-
-// Unlock unlocks the mutex with the given name
-func (l *Maplock) ReleaseLock(name string) error {
-	// l.mu.Lock()
-	// nameLock, exists := l.locks[name]
-	// if !exists {
-	// 	l.mu.Unlock()
-	// 	return ErrNoSuchLock
-	// }
-	// nameLock.Unlock()
-
-	// l.mu.Unlock()
-	// return nil
-}
-
 var node *Node
 
 func main() {
@@ -581,6 +564,11 @@ func main() {
 	listener := new(Listener)
 	rpc.Register(listener)
 	rpc.Accept(inbound)
+
+
+	
+
+
 
 }
 
