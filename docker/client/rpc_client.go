@@ -14,7 +14,7 @@ type Reply struct {
 
 type CoordReply struct {
 	Coord int
-	Data string
+	Data  string
 }
 
 type Message struct {
@@ -39,6 +39,7 @@ type ClientRequest struct {
 // Client Read Request
 // Client should send: filename string
 func (client *Client) SendReadRequest(filename []byte) {
+	fmt.Println("Client wants to read file ", filename)
 	ReadRequest := ClientRequest{SenderID: client.id, Write: 0, Filename: filename, Filecontent: nil}
 	var ReadReply Reply
 	readrequest_err := client.rpcChan.Call("Listener.GetRequest", ReadRequest, &ReadReply)
@@ -62,12 +63,35 @@ func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
 	// log.Printf(WriteReply.Data)
 }
 
+// Client should tryacquirelock() before sending write request
+// if tryacquirelock() fails => read() instead
+func (client *Client) Write(filename []byte, filecontent []byte) {
+	//tryacquirelock()
+	fmt.Println("trying to acquire lock")
+	clientRequest := ClientRequest{SenderID: client.id, Write: 1, Filename: filename, Filecontent: filecontent}
+	var TryAcquireReply Reply
+	tryacquire_err := client.rpcChan.Call("Listener.TryAcquire", clientRequest, &TryAcquireReply)
+	if tryacquire_err != nil {
+		fmt.Println("Try Acquire Lock Failed")
+	}
+
+	if TryAcquireReply.Data == "You can have the lock" {
+		// write to file
+		client.SendWriteRequest(filename, filecontent)
+		fmt.Printf("Client writing to file %v with contents %v\n", filename, filecontent)
+	} else if TryAcquireReply.Data == "Someone else has the lock" {
+		// sucks to be you, just read the file
+		client.SendReadRequest(filename)
+		fmt.Println("Client failed write, reading file ", filename)
+	}
+}
+
 func (client *Client) GetCoordinator() {
 	var CoordinatorReply CoordReply
 	client.rpcChan.Call("Listener.GetCoordinator", client.id, &CoordinatorReply)
 	time.Sleep(time.Second * 5)
 	log.Printf(CoordinatorReply.Data)
-	if CoordinatorReply.Data == "wait"{
+	if CoordinatorReply.Data == "wait" {
 		time.Sleep(time.Second * 5)
 		client.GetCoordinator()
 		return
@@ -113,7 +137,7 @@ func (client *Client) SendKeepAlive(serverInt int) {
 func main() {
 
 	//TODO: Client needs to communicate with chubby cell to find out coordinator
-	time.Sleep(5*time.Second)
+	time.Sleep(5 * time.Second)
 	log.Printf("Client is created")
 
 	client := Client{id: 0, Coordinator: 2, all_ip: [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}}
@@ -123,15 +147,16 @@ func main() {
 	}
 	client.rpcChan = clientChan
 
-	readfilename := []byte("read.txt")
+	// readfilename := []byte("read.txt")
 	writefilename := []byte("write.txt")
 	writecontents := []byte("hello i wrote these")
 
+	time.Sleep(time.Second * 5)
 	//client read request
-	client.SendReadRequest(readfilename)
+	// client.SendReadRequest(readfilename)
 
 	//client write request
-	client.SendWriteRequest(writefilename, writecontents)
+	client.Write(writefilename, writecontents)
 
 	time.Sleep(time.Second * 5)
 

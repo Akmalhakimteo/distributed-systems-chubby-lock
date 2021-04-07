@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	bolt "go.etcd.io/bbolt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -10,8 +11,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-
-	bolt "go.etcd.io/bbolt"
 )
 
 type Listener int
@@ -21,7 +20,7 @@ type Reply struct {
 }
 type CoordReply struct {
 	Coord int
-	Data string
+	Data  string
 }
 
 type Message struct {
@@ -63,12 +62,22 @@ type Node struct {
 	electing    bool
 	rpcChan     [3]*rpc.Client //connection channels within servers
 	// rpcChan     [5]*rpc.Client
-	Coord_chng bool
-	dbfilename string
-	written bool
-	writing bool
-	block bool
+	Coord_chng  bool
+	dbfilename  string
+	written     bool
+	writing     bool
+	block       bool
 	initialized bool
+	lock        Maplock
+}
+
+type Maplock struct {
+	locks map[string]lockCtr //string is the file name, lockctr is the lock object
+}
+
+type lockCtr struct {
+	clientID   int //-1 when no client holding
+	sequenceNo int
 }
 
 func (l *Listener) GetLine(msg Message, reply *Reply) error {
@@ -90,7 +99,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
 		var msg string
 		// Checks if request for propagation is up
-		if node.block{
+		if node.block {
 			msg = "Received Write Failed"
 			*reply = Reply{msg}
 			return nil
@@ -100,6 +109,8 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		for {
 			if success {
 				msg = "Received Write Successful"
+				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
 				break
 			}
 			//TODO: implement fail msg
@@ -112,7 +123,10 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+
 				go node.RunPropogateMaster()
+				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
 				break
 			}
 		}
@@ -130,7 +144,7 @@ func (l *Listener) Keepalive(c *Client, reply *Reply) error {
 
 func (l *Listener) GetCoordinator(id int, reply *CoordReply) error {
 	fmt.Printf("Received: Client %v is asking for new coordinator.\n", id)
-	if node.electing{
+	if node.electing {
 		*reply = CoordReply{node.Coordinator, "wait"}
 		return nil
 	}
@@ -203,9 +217,8 @@ func makeNode(id int) *Node {
 	writing := false
 	block := false
 	initialized := false
-	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized}
-	// Print db values every 5s
-	// go IterateValuesDB(dbfilename)
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized, Maplock{}}
+
 	go curr_node.connect_all()
 
 	return &curr_node
@@ -225,22 +238,22 @@ func (n *Node) connect_all() {
 
 	coord, ind := n.GetCoordinator()
 	log.Println(coord)
-	if coord == -1{
+	if coord == -1 {
 		log.Println("all nodes are just initialized")
-	}else{
+	} else {
 		// In the case where master server dies and restarts before a new master is elected
-		if coord == n.id{
+		if coord == n.id {
 			// pause to allow other nodes to re-establish connection
-			time.Sleep(5*time.Second)
+			time.Sleep(5 * time.Second)
 			// get db from any node
 			n.getMasterProp(ind)
 			// propagate db to all other node
 			n.RunPropogateMaster()
-		}else {
+		} else {
 			n.getMasterProp(coord)
 		}
 	}
-	if !n.electing{
+	if !n.electing {
 		go n.Elect()
 	}
 	n.initialized = true
@@ -385,7 +398,7 @@ func (n *Node) ping(ind int) {
 			// attempt to re-establish connection within 5s
 			go n.connect(ind, n.all_ip[ind])
 			// Start election if not already in election
-			if !node.electing && ind == n.Coordinator && n.initialized{
+			if !node.electing && ind == n.Coordinator && n.initialized {
 				log.Println("starting election")
 				node.Coordinator = -1
 				node.Coord_chng = false
@@ -419,10 +432,7 @@ func InitializeDB(nodenumber int) string {
 	return dbfilename
 }
 
-
-
-
-func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value alerady exists, the value will get updated
+func WriteToDB(dbfilename string, key, value []byte) error { //if Key-value alerady exists, the value will get updated
 
 	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 5 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
@@ -452,7 +462,7 @@ func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value al
 
 func GetValueFromDB(dbfilename string, key []byte) {
 	bucketname_byte := []byte("bucket")
-	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 5 * time.Second,ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second, ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -479,7 +489,7 @@ func GetValueFromDB(dbfilename string, key []byte) {
 func IterateValuesDB(dbfilename string){
 	fmt.Println("DB contents of",dbfilename)
 	bucketname_byte := []byte("bucket")
-	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 5 * time.Second,ReadOnly: true})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second,ReadOnly: true})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err!= nil{
 		log.Println(err)
 	}
@@ -495,9 +505,8 @@ func IterateValuesDB(dbfilename string){
 	})
 }
 
-
-func CopyMasterFile(masterDBfilename string,currentServerNodenumber int){
-	nodenumber_str := strconv.Itoa(currentServerNodenumber) 
+func CopyMasterFile(masterDBfilename string, currentServerNodenumber int) {
+	nodenumber_str := strconv.Itoa(currentServerNodenumber)
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
 	os.Remove(dbfilename)
@@ -593,6 +602,57 @@ func (n *Node) masterPropogateDB() {
 
 }
 
+// Lock locks the mutex
+// func (l *lockCtr) Lock() {
+// 	l.mu.Lock()
+// }
+
+// // Unlock unlocks the mutex
+// func (l *lockCtr) Unlock() {
+// 	l.mu.Unlock()
+// }
+
+// // New creates a new Maplock
+// func New() *Maplock {
+// 	return &Maplock{
+// 		locks: make(map[string]*lockCtr),
+// 	}
+// }
+
+// Lock locks a mutex with the given name. If it doesn't exist, one is created
+func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
+	fmt.Println("Client is trying to acquire the lock for file", string(request.Filename))
+	lock, exist := node.lock.locks[string(request.Filename)]
+	if exist {
+		avail := lock.clientID
+		if avail == -1 {
+			//no one has the lock
+			lock.clientID = request.SenderID
+			*reply = Reply{"You can have the lock"}
+			fmt.Println("Client ", request.SenderID, " has been granted the lock")
+		} else {
+			*reply = Reply{"Someone else has the lock"}
+			fmt.Println("Client ", request.SenderID, " has been denied the lock")
+		}
+	} else {
+		lock.clientID = request.SenderID
+		lock.sequenceNo = 0
+		*reply = Reply{"You can have the lock"}
+		fmt.Println("Client ", request.SenderID, " has been granted the lock")
+	}
+	return nil
+}
+
+// Unlock unlocks the mutex with the given name
+func ReleaseLock(request ClientRequest, msg string) error {
+	if msg == "Received Write Successful" {
+		lock := node.lock.locks[string(request.Filename)]
+		lock.clientID = -1
+		lock.sequenceNo++
+	}
+	return nil
+}
+
 var node *Node
 
 func main() {
@@ -623,7 +683,6 @@ func main() {
 	listener := new(Listener)
 	rpc.Register(listener)
 	rpc.Accept(inbound)
-
 
 }
 
@@ -657,25 +716,25 @@ func (n *Node) connect(ind int, curr_ip string) {
 	return
 }
 
-func (n *Node) getMasterProp(coord int){
+func (n *Node) getMasterProp(coord int) {
 	log.Println("getting master db")
 	// ask if master has updated
 	var reply Message
 	// ensure that channel is not nil
 	curr_chan := n.rpcChan[coord]
-	if curr_chan != nil{
+	if curr_chan != nil {
 		curr_chan.Call("Listener.CheckMasterDB", Message{n.id, ""}, &reply)
-		if reply.Msg == "not written"{
+		if reply.Msg == "not written" {
 			log.Println("master db not written so no need to get master db")
 			return
-		} else if reply.Msg == "wait"{
-			time.Sleep(5*time.Second)
+		} else if reply.Msg == "wait" {
+			time.Sleep(5 * time.Second)
 			n.getMasterProp(coord)
 			return
-		} else if reply.Msg == "sent"{
+		} else if reply.Msg == "sent" {
 			log.Println("master says he sent the db already")
 		}
-	} else{
+	} else {
 		log.Println("no connection to:", coord)
 	}
 }
@@ -685,17 +744,17 @@ func (n *Node) GetCoordinator() (int, int) {
 	var CoordinatorReply CoordReply
 	newCoord := -1
 	index := 0
-	for ind,curr_connect := range n.rpcChan {
-		if ind == n.id || curr_connect==nil{
+	for ind, curr_connect := range n.rpcChan {
+		if ind == n.id || curr_connect == nil {
 			continue
 		}
 		curr_connect.Call("Listener.GetCoordinator", n.id, &CoordinatorReply)
 		log.Printf(CoordinatorReply.Data)
-		if CoordinatorReply.Data == "wait"{
-			time.Sleep(5*time.Second)
+		if CoordinatorReply.Data == "wait" {
+			time.Sleep(5 * time.Second)
 			continue
 		}
-		if CoordinatorReply.Data == ""{
+		if CoordinatorReply.Data == "" {
 			continue
 		}
 		newCoordinatorInt := CoordinatorReply.Coord
@@ -703,7 +762,7 @@ func (n *Node) GetCoordinator() (int, int) {
 		index = ind
 		if newCoord == -1 {
 			continue
-		}else{
+		} else {
 			return newCoord, index
 		}
 	}
@@ -716,7 +775,7 @@ func (l *Listener) CheckMasterDB(msg Message, reply *Message) error {
 		// not written thus no need to send updated DB
 		*reply = Message{node.id, "not written"}
 		return nil
-	} 
+	}
 
 	// block all future writes using semaphore
 	node.block = true
@@ -732,11 +791,11 @@ func (l *Listener) CheckMasterDB(msg Message, reply *Message) error {
 		if err != nil {
 			log.Println(err)
 		}
-		masterFileInBytes,err := ioutil.ReadAll(masterFile)
+		masterFileInBytes, err := ioutil.ReadAll(masterFile)
 		if err != nil {
 			log.Println(err)
 		}
-		sendThis := MessageFileTransfer{node.id,"Servers, follow my master copy",masterFileInBytes}
+		sendThis := MessageFileTransfer{node.id, "Servers, follow my master copy", masterFileInBytes}
 		MasterSendPropogate(sendThis, node.rpcChan[msg.SenderID])
 		*reply = Message{node.id, "sent"}
 		node.block = false
