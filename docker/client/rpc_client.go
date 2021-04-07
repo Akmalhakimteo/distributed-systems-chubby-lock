@@ -34,6 +34,7 @@ type ClientRequest struct {
 // Client Read Request
 // Client should send: filename string
 func (client *Client) SendReadRequest(filename []byte) {
+	fmt.Println("Client wants to read file ", filename)
 	ReadRequest := ClientRequest{SenderID: client.id, Write: 0, Filename: filename, Filecontent: nil}
 	var ReadReply Reply
 	readrequest_err := client.rpcChan.Call("Listener.GetRequest", ReadRequest, &ReadReply)
@@ -143,9 +144,10 @@ func main() {
 	// readfilename := []byte("read.txt")
 	writefilename := []byte("write.txt")
 	writecontents := []byte("hello i wrote these")
-	// time.Sleep(time.Second * 5)
-	// //client read request
-	// client.SendReadRequest(readfilename)
+
+	time.Sleep(time.Second * 5)
+	//client read request
+	client.SendReadRequest(readfilename)
 
 	//client write request
 	client.Write(writefilename, writecontents)
