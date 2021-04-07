@@ -653,6 +653,11 @@ func ReleaseLock(request ClientRequest, msg string) error {
 		lock.sequenceNo++
 		fmt.Println("Lock has been released after successful write. New sequence number for file ", string(request.Filename), " is ", lock.sequenceNo)
 	}
+	else{ 
+		lock := node.lock.locks[string(request.Filename)]
+		lock.clientID = -1 //release lock still but dont update sequenceNo bc it's not a successful write
+		fmt.Println("Lock has been released due to unsuccessful write, sequence number for file ", string(request.Filename), " is ", lock.sequenceNo)
+	}
 	return nil
 }
 
