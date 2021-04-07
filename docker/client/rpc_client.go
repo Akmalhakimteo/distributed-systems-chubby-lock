@@ -62,7 +62,7 @@ func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
 		fmt.Printf("Client Write Request Failed")
 	}
 	// wait for ack
-	// log.Printf(WriteReply.Data)
+	log.Printf(WriteReply.Data)
 }
 
 // Client should tryacquirelock() before sending write request
@@ -175,6 +175,7 @@ func main() {
 	// readfilename := []byte("read.txt")
 	writefilename := []byte("master")
 	writecontents := []byte(id_arg)
+	go client.SendKeepAlive(client.Coordinator)
 
 	time.Sleep(time.Second * 5)
 	//client read request
@@ -185,7 +186,5 @@ func main() {
 	client.Write(writefilename, writecontents)
 
 	time.Sleep(time.Second * 5)
-
-	client.SendKeepAlive(client.Coordinator)
 
 }

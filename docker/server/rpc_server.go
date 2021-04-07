@@ -118,6 +118,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			//TODO: implement fail msg
 			if success == false {
 				msg = "Received Write Failed"
+				log.Println("Write failed")
 				go node.RunPropogateMaster()
 				break
 			}
@@ -125,6 +126,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+				log.Println("Write failed")
 
 				go node.RunPropogateMaster()
 				//TODO: RELEASE LOCK
