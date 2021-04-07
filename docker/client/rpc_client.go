@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
-	// "strconv"
+	"strconv"
 	"time"
+	"os"
 )
 
 type Reply struct {
@@ -38,7 +39,7 @@ type ClientRequest struct {
 
 // Client Read Request
 // Client should send: filename string
-func (client *Client) SendReadRequest(filename []byte) {
+func (client *Client) SendReadRequest(filename []byte) string{
 	fmt.Println("Client wants to read file ", filename)
 	ReadRequest := ClientRequest{SenderID: client.id, Write: 0, Filename: filename, Filecontent: nil}
 	var ReadReply Reply
@@ -48,6 +49,7 @@ func (client *Client) SendReadRequest(filename []byte) {
 	}
 	// wait for ack
 	// log.Printf(ReadReply.Data)
+	return ReadReply.Data
 }
 
 // Client Write Request
@@ -134,13 +136,36 @@ func (client *Client) SendKeepAlive(serverInt int) {
 	}
 }
 
+func makeClient(id int) *Client {
+	all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
+	// all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
+	Coordinator := 2
+	// Coordinator := 4
+	var rpcChan *rpc.Client
+	curr_client := Client{id, Coordinator, rpcChan, all_ip}
+
+	return &curr_client
+}
+
+func (client *Client) ConsistentRead(filename []byte){
+	for{
+		content := client.SendReadRequest(filename)
+		log.Println("this is the new Client's master:", content)
+		time.Sleep(time.Second)
+	}
+}
+
 func main() {
 
 	//TODO: Client needs to communicate with chubby cell to find out coordinator
 	time.Sleep(5 * time.Second)
-	log.Printf("Client is created")
 
 	client := Client{id: 0, Coordinator: 2, all_ip: [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}}
+	id_arg := os.Args[1]
+	id, _ := strconv.Atoi(id_arg)
+
+	log.Println("Client", id, "is running")
+
 	clientChan, err := rpc.Dial("tcp", client.all_ip[client.Coordinator])
 	if err != nil {
 		fmt.Printf("client connection with server %v error\n", client.Coordinator)
@@ -148,14 +173,15 @@ func main() {
 	client.rpcChan = clientChan
 
 	// readfilename := []byte("read.txt")
-	writefilename := []byte("write.txt")
-	writecontents := []byte("hello i wrote these")
+	writefilename := []byte("master")
+	writecontents := []byte(id_arg)
 
 	time.Sleep(time.Second * 5)
 	//client read request
 	// client.SendReadRequest(readfilename)
 
 	//client write request
+	go client.ConsistentRead(writefilename)
 	client.Write(writefilename, writecontents)
 
 	time.Sleep(time.Second * 5)

@@ -66,11 +66,11 @@ services:
     #     networks:
     #         static-network:
     #             ipv4_address: 172.22.0.6
-    client:
+    client0:
         build:
             context: ./client/
-            dockerfile: Dockerfile.client
-        container_name: client
+            dockerfile: Dockerfile.client0
+        container_name: client0
         # image: my-golang-app-client
         depends_on:
             - "server0"
@@ -78,11 +78,24 @@ services:
             - "server2"
             # - "server3"
             # - "server4"
-        ports:
-            - "12346:12346"
         networks:
             static-network:
                 ipv4_address: 172.22.0.2
+    client1:
+        build:
+            context: ./client/
+            dockerfile: Dockerfile.client1
+        container_name: client1
+        # image: my-golang-app-client
+        depends_on:
+            - "server0"
+            - "server1"
+            - "server2"
+            # - "server3"
+            # - "server4"
+        networks:
+            static-network:
+                ipv4_address: 172.22.1.0
 networks:
     static-network:
         ipam:

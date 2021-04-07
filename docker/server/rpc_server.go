@@ -91,9 +91,10 @@ func (l *Listener) GetLine(msg Message, reply *Reply) error {
 func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 	if request.Write == 0 {
 		fmt.Printf("Received Read request from Client: %v for file: %v\n", request.SenderID, string(request.Filename))
-		msg := "Received Read Successful"
+		// msg := "Received Read Successful"
+		data := GetValueFromDB(node.dbfilename, request.Filename)
 		// should wait for propagation
-		*reply = Reply{msg}
+		*reply = Reply{data}
 	} else if request.Write == 1 {
 		start_time := time.Now()
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
@@ -109,7 +110,8 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		for {
 			if success {
 				msg = "Received Write Successful"
-				//TODO: RELEASE LOCK
+				//Uncomment to test multiple clients acquiring the same lock
+				time.Sleep(10*time.Second)
 				ReleaseLock(request, msg)
 				break
 			}
@@ -460,7 +462,8 @@ func WriteToDB(dbfilename string, key, value []byte) error { //if Key-value aler
 	return err
 }
 
-func GetValueFromDB(dbfilename string, key []byte) {
+func GetValueFromDB(dbfilename string, key []byte) string{
+	var new_val string
 	bucketname_byte := []byte("bucket")
 	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second, ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
@@ -476,6 +479,7 @@ func GetValueFromDB(dbfilename string, key []byte) {
 		val := bucket.Get(key)
 		if val != nil {
 			fmt.Println(string(val))
+			new_val = string(val)
 		} else {
 			fmt.Println("Key value does not exist")
 		}
@@ -484,6 +488,7 @@ func GetValueFromDB(dbfilename string, key []byte) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	return new_val
 }
 
 func IterateValuesDB(dbfilename string){
