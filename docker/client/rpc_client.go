@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
-	"strconv"
+	// "strconv"
 	"time"
 )
 
 type Reply struct {
+	Data string
+}
+
+type CoordReply struct {
+	Coord int
 	Data string
 }
 
@@ -58,7 +63,7 @@ func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
 }
 
 func (client *Client) GetCoordinator() {
-	var CoordinatorReply Reply
+	var CoordinatorReply CoordReply
 	client.rpcChan.Call("Listener.GetCoordinator", client.id, &CoordinatorReply)
 	time.Sleep(time.Second * 5)
 	log.Printf(CoordinatorReply.Data)
@@ -67,11 +72,7 @@ func (client *Client) GetCoordinator() {
 		client.GetCoordinator()
 		return
 	}
-	newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
-	newCoordinatorInt, err := strconv.Atoi(newCoordinator)
-	if err != nil {
-		fmt.Println("Int conversion error")
-	}
+	newCoordinatorInt := CoordinatorReply.Coord
 	if newCoordinatorInt == -1 {
 		client.GetCoordinator()
 	} else {
@@ -112,7 +113,7 @@ func (client *Client) SendKeepAlive(serverInt int) {
 func main() {
 
 	//TODO: Client needs to communicate with chubby cell to find out coordinator
-
+	time.Sleep(5*time.Second)
 	log.Printf("Client is created")
 
 	client := Client{id: 0, Coordinator: 2, all_ip: [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}}
