@@ -89,12 +89,25 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 	} else if request.Write == 1 {
 		start_time := time.Now()
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
+<<<<<<< HEAD
+=======
+		// m := New() //create a new lock
+		// m.Lock(string(request.Filename))
+		// fmt.Printf(v)
+		// fmt.Printf(string(request.Filename), " is locked")
+
+>>>>>>> e7a029a8f831f4b5ad5ae7eee0f92698cd52f9cf
 		var msg string
 		success := node.clientWriteReq(ClientRequest{node.Coordinator, 1, request.Filename, request.Filecontent})
 		// wait for propagation
 		for {
 			if success {
 				msg = "Received Write Successful"
+<<<<<<< HEAD
+=======
+				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
+>>>>>>> e7a029a8f831f4b5ad5ae7eee0f92698cd52f9cf
 				break
 			}
 			//TODO: implement fail msg
@@ -103,6 +116,11 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+<<<<<<< HEAD
+=======
+				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
+>>>>>>> e7a029a8f831f4b5ad5ae7eee0f92698cd52f9cf
 				break
 			}
 		}
@@ -537,6 +555,70 @@ func (n *Node) masterPropogateDB() {
 
 	//only continue on when all ack
 
+}
+
+// Lock locks the mutex
+// func (l *lockCtr) Lock() {
+// 	l.mu.Lock()
+// }
+
+// // Unlock unlocks the mutex
+// func (l *lockCtr) Unlock() {
+// 	l.mu.Unlock()
+// }
+
+// // New creates a new Maplock
+// func New() *Maplock {
+// 	return &Maplock{
+// 		locks: make(map[string]*lockCtr),
+// 	}
+// }
+
+// Lock locks a mutex with the given name. If it doesn't exist, one is created
+func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) {
+	// // l.mu.Lock()
+	// if l.locks == nil {
+	// 	l.locks = make(map[string]*lockCtr)
+	// }
+
+	// nameLock, exists := l.locks[name]
+	// if !exists {
+	// 	nameLock = &lockCtr{}
+	// 	l.locks[name] = nameLock
+	// }
+	// // this makes sure that the lock isn't deleted if `Lock` and `Unlock` are called concurrently
+	// l.mu.Unlock()
+
+	// // Lock the nameLock outside the main mutex so we don't block other operations
+	// nameLock.Lock()
+	// Lock := node.lock
+
+	lock, exist := node.lock.locks[string(request.Filename)]
+	if exist {
+		avail := lock.clientID
+		if avail == -1 {
+			//no one has the lock
+			lock.clientID = request.SenderID
+			*reply = Reply{"You can have the lock"}
+		} else {
+			*reply = Reply{"Someone else has the lock"}
+		}
+	} else {
+		lock.clientID = request.SenderID
+		lock.sequenceNo = 0
+		*reply = Reply{"You can have the lock"}
+	}
+
+}
+
+// Unlock unlocks the mutex with the given name
+func ReleaseLock(request ClientRequest, msg string) error {
+	if msg == "Received Write Successful" {
+		lock := node.lock.locks[string(request.Filename)]
+		lock.clientID = -1
+		lock.sequenceNo++
+	}
+	return nil
 }
 
 var node *Node
