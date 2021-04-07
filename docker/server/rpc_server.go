@@ -10,8 +10,9 @@ import (
 	"os"
 	"strconv"
 	"time"
-
 	bolt "go.etcd.io/bbolt"
+	"io/ioutil"
+
 )
 
 type Listener int
@@ -100,6 +101,8 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		for {
 			if success {
 				msg = "Received Write Successful"
+				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
 				break
 			}
 			//TODO: implement fail msg
@@ -112,7 +115,15 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+<<<<<<< HEAD
 				go node.RunPropogateMaster()
+=======
+<<<<<<< HEAD
+=======
+				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
+>>>>>>> e7a029a8f831f4b5ad5ae7eee0f92698cd52f9cf
+>>>>>>> alice-lock
 				break
 			}
 		}
@@ -157,21 +168,39 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 	return nil
 }
 
+<<<<<<< HEAD
 func (l *Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
+=======
+func (l * Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
+>>>>>>> alice-lock
 	fmt.Printf("Received: %v Master update from server %v\n\n", msg.Msg, msg.SenderID)
 	// log.Println("Receiving over bytes: ",msg.Bytedata)
 	err := ioutil.WriteFile("Master-db", msg.Bytedata, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
+<<<<<<< HEAD
 	CopyMasterFile("Master-db", node.id)
 	log.Println("Updated Database of server", node.id)
 	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename) //uncomment to check for file transfer ok
 	// key := [] byte("key roomba")
+=======
+	CopyMasterFile("Master-db",node.id)
+	log.Println("Updated Database of server",node.id)
+	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename)
+	// key := [] byte("key roomba")  //uncomment to check for file transfer ok
+>>>>>>> alice-lock
 	// GetValueFromDB(node.dbfilename,key)
 	return nil
 }
 
+<<<<<<< HEAD
+=======
+
+
+
+
+>>>>>>> alice-lock
 //message will contain new file data
 func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 	if len(file.FileNames) > 1 {
@@ -205,9 +234,13 @@ func makeNode(id int) *Node {
 	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized}
 
 	go curr_node.connect_all()
+	
+	
 
 	return &curr_node
 }
+
+
 
 func (n *Node) connect_all() {
 	for ind, curr_ip := range n.all_ip {
@@ -284,7 +317,11 @@ func send_elect(msg Message, rpcChan *rpc.Client) string {
 	return reply.Msg
 }
 
+<<<<<<< HEAD
 func MasterSendPropogate(msg MessageFileTransfer, rpcChan *rpc.Client) { //Master Send DB to SINGLE server
+=======
+func MasterSendPropogate(msg MessageFileTransfer, rpcChan  *rpc.Client ){ //Master Send DB to SINGLE server
+>>>>>>> alice-lock
 	var reply Message
 	for {
 		err := rpcChan.Call("Listener.MasterPropogateDB", msg, &reply)
@@ -296,6 +333,13 @@ func MasterSendPropogate(msg MessageFileTransfer, rpcChan *rpc.Client) { //Maste
 	}
 }
 
+<<<<<<< HEAD
+=======
+
+
+
+
+>>>>>>> alice-lock
 func (n *Node) Elect() {
 	// if n.Coordinator == n.id {
 	// 	return
@@ -347,7 +391,11 @@ func (n *Node) Elect() {
 	n.electing = false
 }
 
+<<<<<<< HEAD
 func (n *Node) RunPropogateMaster() { //Yx Call this only when you want to propogate Master DB to ALL servers
+=======
+func (n *Node) RunPropogateMaster(){ //Yx Call this only when you want to propogate Master DB to ALL servers
+>>>>>>> alice-lock
 	// key := [] byte("key roomba") //uncomment to check for file transfer ok
 	// value := [] byte("value samba")
 	// WriteToDB(n.dbfilename,key,value)
@@ -355,6 +403,7 @@ func (n *Node) RunPropogateMaster() { //Yx Call this only when you want to propo
 	if err != nil {
 		log.Fatal(err)
 	}
+<<<<<<< HEAD
 	masterFileInBytes, err := ioutil.ReadAll(masterFile)
 	if err != nil {
 		log.Fatal(err)
@@ -363,6 +412,16 @@ func (n *Node) RunPropogateMaster() { //Yx Call this only when you want to propo
 	for _, curr_connect := range n.rpcChan {
 		if curr_connect != nil {
 			MasterSendPropogate(sendThis, curr_connect)
+=======
+	masterFileInBytes,err := ioutil.ReadAll(masterFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	sendThis := MessageFileTransfer{n.id,"Servers, follow my master copy",masterFileInBytes}
+	for _, curr_connect := range n.rpcChan {
+		if curr_connect != nil {
+			MasterSendPropogate(sendThis,curr_connect)
+>>>>>>> alice-lock
 		}
 	}
 }
@@ -406,6 +465,7 @@ func InitializeDB(nodenumber int) string {
 	defer db.Close()
 	fmt.Println("DB Initialized for server", nodenumber_str)
 	bucketname_byte := []byte("bucket")
+<<<<<<< HEAD
 	err = db.Update(func(tx *bolt.Tx) error { //Init Bucket
 		_, err := tx.CreateBucketIfNotExists(bucketname_byte)
 		if err != nil {
@@ -418,6 +478,20 @@ func InitializeDB(nodenumber int) string {
 }
 
 func WriteToDB(dbfilename string, key, value []byte) error { //if Key-value alerady exists, the value will get updated
+=======
+	err = db.Update(func(tx *bolt.Tx) error {  //Init Bucket
+        _, err := tx.CreateBucketIfNotExists(bucketname_byte)
+        if err != nil {
+            return err
+        }
+		fmt.Println("Bucket Initialized for server", nodenumber_str)
+		return nil
+    })
+	return dbfilename
+}
+
+func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value alerady exists, the value will get updated
+>>>>>>> alice-lock
 
 	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
@@ -440,8 +514,13 @@ func WriteToDB(dbfilename string, key, value []byte) error { //if Key-value aler
 	})
 
 	if err != nil {
+<<<<<<< HEAD
 		log.Fatal(err)
 	}
+=======
+        log.Fatal(err)
+    }
+>>>>>>> alice-lock
 	return err
 }
 
@@ -471,6 +550,7 @@ func GetValueFromDB(dbfilename string, key []byte) {
 	}
 }
 
+<<<<<<< HEAD
 func IterateValuesDB(dbfilename string) {
 	for {
 		fmt.Println("DB contents of", dbfilename)
@@ -495,6 +575,10 @@ func IterateValuesDB(dbfilename string) {
 
 func CopyMasterFile(masterDBfilename string, currentServerNodenumber int) {
 	nodenumber_str := strconv.Itoa(currentServerNodenumber)
+=======
+func CopyMasterFile(masterDBfilename string,currentServerNodenumber int){
+	nodenumber_str := strconv.Itoa(currentServerNodenumber) 
+>>>>>>> alice-lock
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
 	os.Remove(dbfilename)
@@ -517,6 +601,10 @@ func CopyMasterFile(masterDBfilename string, currentServerNodenumber int) {
 	}
 	log.Printf("Master copy propogated. Copied %d bytes.", bytesCopied)
 	os.Remove(masterDBfilename)
+<<<<<<< HEAD
+=======
+    
+>>>>>>> alice-lock
 
 }
 
@@ -586,6 +674,54 @@ func (n *Node) masterPropogateDB() {
 
 }
 
+// Lock locks the mutex
+// func (l *lockCtr) Lock() {
+// 	l.mu.Lock()
+// }
+
+// // Unlock unlocks the mutex
+// func (l *lockCtr) Unlock() {
+// 	l.mu.Unlock()
+// }
+
+// // New creates a new Maplock
+// func New() *Maplock {
+// 	return &Maplock{
+// 		locks: make(map[string]*lockCtr),
+// 	}
+// }
+
+// Lock locks a mutex with the given name. If it doesn't exist, one is created
+func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
+	fmt.Println("Client is trying to acquire the lock for file", request.Filename)
+	lock, exist := node.lock.locks[string(request.Filename)]
+	if exist {
+		avail := lock.clientID
+		if avail == -1 {
+			//no one has the lock
+			lock.clientID = request.SenderID
+			*reply = Reply{"You can have the lock"}
+		} else {
+			*reply = Reply{"Someone else has the lock"}
+		}
+	} else {
+		lock.clientID = request.SenderID
+		lock.sequenceNo = 0
+		*reply = Reply{"You can have the lock"}
+	}
+	return nil
+}
+
+// Unlock unlocks the mutex with the given name
+func ReleaseLock(request ClientRequest, msg string) error {
+	if msg == "Received Write Successful" {
+		lock := node.lock.locks[string(request.Filename)]
+		lock.clientID = -1
+		lock.sequenceNo++
+	}
+	return nil
+}
+
 var node *Node
 
 func main() {
@@ -616,6 +752,11 @@ func main() {
 	listener := new(Listener)
 	rpc.Register(listener)
 	rpc.Accept(inbound)
+
+
+	
+
+
 
 }
 
