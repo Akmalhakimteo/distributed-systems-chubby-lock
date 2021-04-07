@@ -487,6 +487,7 @@ func (n *Node) clientWriteReq(d ClientRequest) bool {
 		}
 	}
 	if count == 4 {
+		n.sample_write(d.Filename, d.Filecontent)
 		return true
 	}
 	return false
