@@ -3,15 +3,15 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
 	"strconv"
 	"time"
-	bolt "go.etcd.io/bbolt"
-	"io/ioutil"
 
+	bolt "go.etcd.io/bbolt"
 )
 
 type Listener int
@@ -32,7 +32,7 @@ type Message struct {
 type MessageFileTransfer struct {
 	SenderID int
 	Msg      string
-	Bytedata [] byte
+	Bytedata []byte
 }
 
 type Client struct {
@@ -103,11 +103,16 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 				break
 			}
 			//TODO: implement fail msg
-			//if success == false {}
+			if success == false {
+				msg = "Received Write Failed"
+				go node.RunPropogateMaster()
+				break
+			}
 			//Timeout of 10s on client side
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+				go node.RunPropogateMaster()
 				break
 			}
 		}
@@ -152,24 +157,20 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 	return nil
 }
 
-func (l * Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
+func (l *Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
 	fmt.Printf("Received: %v Master update from server %v\n\n", msg.Msg, msg.SenderID)
 	// log.Println("Receiving over bytes: ",msg.Bytedata)
 	err := ioutil.WriteFile("Master-db", msg.Bytedata, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
-	CopyMasterFile("Master-db",node.id)
-	log.Println("Updated Database of server",node.id)
+	CopyMasterFile("Master-db", node.id)
+	log.Println("Updated Database of server", node.id)
 	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename)
 	// key := [] byte("key roomba")  //uncomment to check for file transfer ok
 	// GetValueFromDB(node.dbfilename,key)
 	return nil
 }
-
-
-
-
 
 //message will contain new file data
 func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
@@ -181,6 +182,9 @@ func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 	//should wait for DB to finish updating
 	// if successful in the write
 	node.written = true
+	//TODO: should wait for DB to finish updating
+	node.sample_write(file.FileNames[0], file.FileContents[0])
+	//call function that takes input file and updates database
 	*reply = Reply{"ACK"}
 	return nil
 }
@@ -201,13 +205,9 @@ func makeNode(id int) *Node {
 	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized}
 
 	go curr_node.connect_all()
-	
-	
 
 	return &curr_node
 }
-
-
 
 func (n *Node) connect_all() {
 	for ind, curr_ip := range n.all_ip {
@@ -284,7 +284,7 @@ func send_elect(msg Message, rpcChan *rpc.Client) string {
 	return reply.Msg
 }
 
-func MasterSendPropogate(msg MessageFileTransfer, rpcChan  *rpc.Client ){ //Master Send DB to SINGLE server
+func MasterSendPropogate(msg MessageFileTransfer, rpcChan *rpc.Client) { //Master Send DB to SINGLE server
 	var reply Message
 	for {
 		err := rpcChan.Call("Listener.MasterPropogateDB", msg, &reply)
@@ -295,10 +295,6 @@ func MasterSendPropogate(msg MessageFileTransfer, rpcChan  *rpc.Client ){ //Mast
 		break
 	}
 }
-
-
-
-
 
 func (n *Node) Elect() {
 	// if n.Coordinator == n.id {
@@ -350,7 +346,7 @@ func (n *Node) Elect() {
 	n.electing = false
 }
 
-func (n *Node) RunPropogateMaster(){ //Yx Call this only when you want to propogate Master DB to ALL servers
+func (n *Node) RunPropogateMaster() { //Yx Call this only when you want to propogate Master DB to ALL servers
 	// key := [] byte("key roomba") //uncomment to check for file transfer ok
 	// value := [] byte("value samba")
 	// WriteToDB(n.dbfilename,key,value)
@@ -358,14 +354,14 @@ func (n *Node) RunPropogateMaster(){ //Yx Call this only when you want to propog
 	if err != nil {
 		log.Fatal(err)
 	}
-	masterFileInBytes,err := ioutil.ReadAll(masterFile)
+	masterFileInBytes, err := ioutil.ReadAll(masterFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	sendThis := MessageFileTransfer{n.id,"Servers, follow my master copy",masterFileInBytes}
+	sendThis := MessageFileTransfer{n.id, "Servers, follow my master copy", masterFileInBytes}
 	for _, curr_connect := range n.rpcChan {
 		if curr_connect != nil {
-			MasterSendPropogate(sendThis,curr_connect)
+			MasterSendPropogate(sendThis, curr_connect)
 		}
 	}
 }
@@ -409,18 +405,18 @@ func InitializeDB(nodenumber int) string {
 	defer db.Close()
 	fmt.Println("DB Initialized for server", nodenumber_str)
 	bucketname_byte := []byte("bucket")
-	err = db.Update(func(tx *bolt.Tx) error {  //Init Bucket
-        _, err := tx.CreateBucketIfNotExists(bucketname_byte)
-        if err != nil {
-            return err
-        }
+	err = db.Update(func(tx *bolt.Tx) error { //Init Bucket
+		_, err := tx.CreateBucketIfNotExists(bucketname_byte)
+		if err != nil {
+			return err
+		}
 		fmt.Println("Bucket Initialized for server", nodenumber_str)
 		return nil
-    })
+	})
 	return dbfilename
 }
 
-func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value alerady exists, the value will get updated
+func WriteToDB(dbfilename string, key, value []byte) error { //if Key-value alerady exists, the value will get updated
 
 	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
@@ -443,8 +439,8 @@ func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value al
 	})
 
 	if err != nil {
-        log.Fatal(err)
-    }
+		log.Fatal(err)
+	}
 	return err
 }
 
@@ -474,8 +470,8 @@ func GetValueFromDB(dbfilename string, key []byte) {
 	}
 }
 
-func CopyMasterFile(masterDBfilename string,currentServerNodenumber int){
-	nodenumber_str := strconv.Itoa(currentServerNodenumber) 
+func CopyMasterFile(masterDBfilename string, currentServerNodenumber int) {
+	nodenumber_str := strconv.Itoa(currentServerNodenumber)
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
 	os.Remove(dbfilename)
@@ -498,7 +494,6 @@ func CopyMasterFile(masterDBfilename string,currentServerNodenumber int){
 	}
 	log.Printf("Master copy propogated. Copied %d bytes.", bytesCopied)
 	os.Remove(masterDBfilename)
-    
 
 }
 
@@ -523,10 +518,9 @@ func (n *Node) clientWriteReq(d ClientRequest) bool {
 		}
 	}
 	if count == 4 {
+		n.sample_write(d.Filename, d.Filecontent)
 		return true
 	}
-	//something has failed and should call master propogate
-	//TODO:master propagate db
 	return false
 }
 
@@ -598,7 +592,7 @@ func main() {
 	}
 	listener := new(Listener)
 	rpc.Register(listener)
-	rpc.Accept(inbound)
+	rpc.Accept(inbound) 
 }
 
 func (n *Node) sample_write(key []byte, value []byte) {
