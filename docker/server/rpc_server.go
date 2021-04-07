@@ -128,6 +128,8 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 
 				go node.RunPropogateMaster()
 				//TODO: RELEASE LOCK
+				//Uncomment to test multiple clients acquiring the same lock
+				time.Sleep(10*time.Second)
 				ReleaseLock(request, msg)
 				break
 			}
@@ -180,11 +182,11 @@ func (l *Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFile
 	if err != nil {
 		log.Fatal(err)
 	}
-	CopyMasterFile("Master-db",node.id)
-	log.Println("Updated Database of server",node.id)
+	CopyMasterFile("Master-db", node.id)
+	log.Println("Updated Database of server", node.id)
 	go IterateValuesDB(node.dbfilename)
 	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename) //uncomment to check for file transfer ok
-	// key := [] byte("key roomba")  
+	// key := [] byte("key roomba")
 	// GetValueFromDB(node.dbfilename,key)
 	return nil
 }
@@ -491,11 +493,11 @@ func GetValueFromDB(dbfilename string, key []byte) string{
 	return new_val
 }
 
-func IterateValuesDB(dbfilename string){
-	fmt.Println("DB contents of",dbfilename)
+func IterateValuesDB(dbfilename string) {
+	fmt.Println("DB contents of", dbfilename)
 	bucketname_byte := []byte("bucket")
-	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second,ReadOnly: true})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
-	if err!= nil{
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second, ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err != nil {
 		log.Println(err)
 	}
 	defer db.Close()
@@ -558,6 +560,7 @@ func (n *Node) clientWriteReq(d ClientRequest) bool {
 		}
 	}
 	if count == 2 {
+		// if count ==4{  //UNCOMMENT IF SERVERS == 5
 		n.sample_write(d.Filename, d.Filecontent)
 		return true
 	}
@@ -640,6 +643,7 @@ func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
 			fmt.Println("Client ", request.SenderID, " has been denied the lock")
 		}
 	} else {
+		
 		lock.clientID = request.SenderID
 		lock.sequenceNo = 0
 		*reply = Reply{"You can have the lock"}
@@ -654,6 +658,11 @@ func ReleaseLock(request ClientRequest, msg string) error {
 		lock := node.lock.locks[string(request.Filename)]
 		lock.clientID = -1
 		lock.sequenceNo++
+		fmt.Println("Lock has been released after successful write. New sequence number for file ", string(request.Filename), " is ", lock.sequenceNo)
+	} else{ 
+		lock := node.lock.locks[string(request.Filename)]
+		lock.clientID = -1 //release lock still but dont update sequenceNo bc it's not a successful write
+		fmt.Println("Lock has been released due to unsuccessful write, sequence number for file ", string(request.Filename), " is ", lock.sequenceNo)
 	}
 	return nil
 }
