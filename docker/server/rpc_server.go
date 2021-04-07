@@ -166,6 +166,7 @@ func (l *Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFile
 	}
 	CopyMasterFile("Master-db",node.id)
 	log.Println("Updated Database of server",node.id)
+	go IterateValuesDB(node.dbfilename)
 	// log.Println("Updated server copy with master copy..Testing get value from  Node",node.id,node.dbfilename) //uncomment to check for file transfer ok
 	// key := [] byte("key roomba")  
 	// GetValueFromDB(node.dbfilename,key)
@@ -203,7 +204,8 @@ func makeNode(id int) *Node {
 	block := false
 	initialized := false
 	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized}
-
+	// Print db values every 5s
+	// go IterateValuesDB(dbfilename)
 	go curr_node.connect_all()
 
 	return &curr_node
@@ -341,7 +343,7 @@ func (n *Node) Elect() {
 	}
 	// Set self to be coordinator
 	n.Coordinator = n.id
-	// n.RunPropogateMaster() //uncomment to simulate
+	n.RunPropogateMaster() //uncomment to simulate
 	// Stop election
 
 	n.electing = false
@@ -399,7 +401,7 @@ func InitializeDB(nodenumber int) string {
 	nodenumber_str := strconv.Itoa(nodenumber) //Init DB
 	var dbname_temp = "Node-db"
 	dbfilename := dbname_temp[:4] + nodenumber_str + dbname_temp[4:]
-	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 5 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -422,7 +424,7 @@ func InitializeDB(nodenumber int) string {
 
 func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value alerady exists, the value will get updated
 
-	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 5 * time.Second}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -450,7 +452,7 @@ func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value al
 
 func GetValueFromDB(dbfilename string, key []byte) {
 	bucketname_byte := []byte("bucket")
-	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second,ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 5 * time.Second,ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -475,25 +477,22 @@ func GetValueFromDB(dbfilename string, key []byte) {
 }
 
 func IterateValuesDB(dbfilename string){
-	for{
-		fmt.Println("DB contents of",dbfilename)
-		bucketname_byte := []byte("bucket")
-		db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 1 * time.Second,ReadOnly: true})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
-		if err!= nil{
-			log.Println(err)
-		}
-		defer db.Close()
-		db.View(func(tx *bolt.Tx) error {
-			// Assume bucket exists and has keys
-			b := tx.Bucket(bucketname_byte)
-			c := b.Cursor()
-			for k, v := c.First(); k != nil; k, v = c.Next() {
-				fmt.Printf("key=%s, value=%s\n", k, v)
-			}
-			return nil
-		})
-		time.Sleep(5 * time.Second)
+	fmt.Println("DB contents of",dbfilename)
+	bucketname_byte := []byte("bucket")
+	db, err:= bolt.Open(dbfilename,0666,&bolt.Options{Timeout: 5 * time.Second,ReadOnly: true})  //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
+	if err!= nil{
+		log.Println(err)
 	}
+	defer db.Close()
+	db.View(func(tx *bolt.Tx) error {
+		// Assume bucket exists and has keys
+		b := tx.Bucket(bucketname_byte)
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key=%s, value=%s\n", k, v)
+		}
+		return nil
+	})
 }
 
 
@@ -544,10 +543,14 @@ func (n *Node) clientWriteReq(d ClientRequest) bool {
 			count++
 		}
 	}
-	if count == 4 {
+	if count == 2 {
 		n.sample_write(d.Filename, d.Filecontent)
 		return true
 	}
+	// if count == 4 {
+	// 	n.sample_write(d.Filename, d.Filecontent)
+	// 	return true
+	// }
 	return false
 }
 
