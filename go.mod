@@ -7,6 +7,7 @@ replace ds_proj/server => ./server
 require (
 	ds_proj/client v0.0.0-00010101000000-000000000000 // indirect
 	ds_proj/server v0.0.0-00010101000000-000000000000
+	go.etcd.io/bbolt v1.3.5 // indirect
 )
 
 replace ds_proj/client => ./client
