@@ -103,7 +103,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		// m := New() //create a new lock
 		// m.Lock(string(request.Filename))
 		// fmt.Printf(v)
-		fmt.Printf(string(request.Filename), " is locked")
+		// fmt.Printf(string(request.Filename), " is locked")
 
 		var msg string
 		success := node.clientWriteReq(ClientRequest{node.Coordinator, 1, request.Filename, request.Filecontent})
@@ -112,7 +112,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			if success {
 				msg = "Received Write Successful"
 				//TODO: RELEASE LOCK
-				// m.Unlock(string(request.Filename))
+				ReleaseLock(request, msg)
 				break
 			}
 			//TODO: implement fail msg
@@ -122,6 +122,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
 				//TODO: RELEASE LOCK
+				ReleaseLock(request, msg)
 				break
 			}
 		}
@@ -543,17 +544,13 @@ func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) {
 }
 
 // Unlock unlocks the mutex with the given name
-func (l *Maplock) ReleaseLock(name string) error {
-	// l.mu.Lock()
-	// nameLock, exists := l.locks[name]
-	// if !exists {
-	// 	l.mu.Unlock()
-	// 	return ErrNoSuchLock
-	// }
-	// nameLock.Unlock()
-
-	// l.mu.Unlock()
-	// return nil
+func ReleaseLock(request ClientRequest, msg string) error {
+	if msg == "Received Write Successful" {
+		lock := node.lock.locks[string(request.Filename)]
+		lock.clientID = -1
+		lock.sequenceNo++
+	}
+	return nil
 }
 
 var node *Node
