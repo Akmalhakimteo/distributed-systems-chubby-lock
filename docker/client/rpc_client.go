@@ -39,7 +39,7 @@ type ClientRequest struct {
 // Client Read Request
 // Client should send: filename string
 func (client *Client) SendReadRequest(filename []byte) {
-	fmt.Println("Client wants to read file ", filename)
+	fmt.Println("Client wants to read file ", string(filename))
 	ReadRequest := ClientRequest{SenderID: client.id, Write: 0, Filename: filename, Filecontent: nil}
 	var ReadReply Reply
 	readrequest_err := client.rpcChan.Call("Listener.GetRequest", ReadRequest, &ReadReply)
@@ -78,11 +78,11 @@ func (client *Client) Write(filename []byte, filecontent []byte) {
 	if TryAcquireReply.Data == "You can have the lock" {
 		// write to file
 		client.SendWriteRequest(filename, filecontent)
-		fmt.Printf("Client writing to file %v with contents %v\n", filename, filecontent)
+		fmt.Printf("Client writing to file %v with contents %v\n", string(filename), string(filecontent))
 	} else if TryAcquireReply.Data == "Someone else has the lock" {
 		// sucks to be you, just read the file
 		client.SendReadRequest(filename)
-		fmt.Println("Client failed write, reading file ", filename)
+		fmt.Println("Client failed write, reading file ", string(filename))
 	}
 }
 
