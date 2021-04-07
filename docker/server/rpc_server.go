@@ -68,6 +68,16 @@ type Node struct {
 	writing     bool
 	block       bool
 	initialized bool
+	lock        Maplock
+}
+
+type Maplock struct {
+	locks map[string]lockCtr //string is the file name, lockctr is the lock object
+}
+
+type lockCtr struct {
+	clientID   int //-1 when no client holding
+	sequenceNo int
 }
 
 func (l *Listener) GetLine(msg Message, reply *Reply) error {
@@ -206,7 +216,7 @@ func makeNode(id int) *Node {
 	writing := false
 	block := false
 	initialized := false
-	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized}
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized, Maplock{}}
 
 	go curr_node.connect_all()
 
@@ -609,7 +619,7 @@ func (n *Node) masterPropogateDB() {
 
 // Lock locks a mutex with the given name. If it doesn't exist, one is created
 func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
-	fmt.Println("Client is trying to acquire the lock for file", request.Filename)
+	fmt.Println("Client is trying to acquire the lock for file", string(request.Filename))
 	lock, exist := node.lock.locks[string(request.Filename)]
 	if exist {
 		avail := lock.clientID
@@ -617,13 +627,16 @@ func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
 			//no one has the lock
 			lock.clientID = request.SenderID
 			*reply = Reply{"You can have the lock"}
+			fmt.Println("Client ", request.SenderID, " has been granted the lock")
 		} else {
 			*reply = Reply{"Someone else has the lock"}
+			fmt.Println("Client ", request.SenderID, " has been denied the lock")
 		}
 	} else {
 		lock.clientID = request.SenderID
 		lock.sequenceNo = 0
 		*reply = Reply{"You can have the lock"}
+		fmt.Println("Client ", request.SenderID, " has been granted the lock")
 	}
 	return nil
 }

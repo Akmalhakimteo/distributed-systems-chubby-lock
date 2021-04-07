@@ -14,7 +14,7 @@ type Reply struct {
 
 type CoordReply struct {
 	Coord int
-	Data string
+	Data  string
 }
 
 type Message struct {
@@ -91,7 +91,7 @@ func (client *Client) GetCoordinator() {
 	client.rpcChan.Call("Listener.GetCoordinator", client.id, &CoordinatorReply)
 	time.Sleep(time.Second * 5)
 	log.Printf(CoordinatorReply.Data)
-	if CoordinatorReply.Data == "wait"{
+	if CoordinatorReply.Data == "wait" {
 		time.Sleep(time.Second * 5)
 		client.GetCoordinator()
 		return
@@ -137,7 +137,7 @@ func (client *Client) SendKeepAlive(serverInt int) {
 func main() {
 
 	//TODO: Client needs to communicate with chubby cell to find out coordinator
-	time.Sleep(5*time.Second)
+	time.Sleep(5 * time.Second)
 	log.Printf("Client is created")
 
 	client := Client{id: 0, Coordinator: 2, all_ip: [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}}
@@ -153,7 +153,7 @@ func main() {
 
 	time.Sleep(time.Second * 5)
 	//client read request
-	client.SendReadRequest(readfilename)
+	// client.SendReadRequest(readfilename)
 
 	//client write request
 	client.Write(writefilename, writecontents)
