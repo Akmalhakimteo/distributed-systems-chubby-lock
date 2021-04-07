@@ -507,24 +507,8 @@ func (n *Node) masterPropogateDB() {
 // }
 
 // Lock locks a mutex with the given name. If it doesn't exist, one is created
-func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) {
-	// // l.mu.Lock()
-	// if l.locks == nil {
-	// 	l.locks = make(map[string]*lockCtr)
-	// }
-
-	// nameLock, exists := l.locks[name]
-	// if !exists {
-	// 	nameLock = &lockCtr{}
-	// 	l.locks[name] = nameLock
-	// }
-	// // this makes sure that the lock isn't deleted if `Lock` and `Unlock` are called concurrently
-	// l.mu.Unlock()
-
-	// // Lock the nameLock outside the main mutex so we don't block other operations
-	// nameLock.Lock()
-	// Lock := node.lock
-
+func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
+	fmt.Println("Client is trying to acquire the lock for file", request.Filename)
 	lock, exist := node.lock.locks[string(request.Filename)]
 	if exist {
 		avail := lock.clientID
@@ -540,7 +524,7 @@ func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) {
 		lock.sequenceNo = 0
 		*reply = Reply{"You can have the lock"}
 	}
-
+	return nil
 }
 
 // Unlock unlocks the mutex with the given name
