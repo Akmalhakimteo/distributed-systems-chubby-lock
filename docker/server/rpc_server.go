@@ -3,20 +3,24 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
 	"strconv"
 	"time"
-	bolt "go.etcd.io/bbolt"
-	"io/ioutil"
 
+	bolt "go.etcd.io/bbolt"
 )
 
 type Listener int
 
 type Reply struct {
+	Data string
+}
+type CoordReply struct {
+	Coord int
 	Data string
 }
 
@@ -28,7 +32,7 @@ type Message struct {
 type MessageFileTransfer struct {
 	SenderID int
 	Msg      string
-	Bytedata [] byte
+	Bytedata []byte
 }
 
 type Client struct {
@@ -61,15 +65,10 @@ type Node struct {
 	// rpcChan     [5]*rpc.Client
 	Coord_chng bool
 	dbfilename string
-	// revChan chan Message
-	// replyChan chan Message
-	// ClientChan chan c.SelfIntroduction
-	// peers []Node
-	// quitElect chan int
-	// killNode chan int
-	// AllClients []chan c.File
-	// FileChan chan c.File
-	// database map[string]Lock
+	written bool
+	writing bool
+	block bool
+	initialized bool
 }
 
 func (l *Listener) GetLine(msg Message, reply *Reply) error {
@@ -90,6 +89,12 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		start_time := time.Now()
 		fmt.Printf("Received Write Request from Client: %v  for file %v with contents: %v\n", request.SenderID, string(request.Filename), string(request.Filecontent))
 		var msg string
+		// Checks if request for propagation is up
+		if node.block{
+			msg = "Received Write Failed"
+			*reply = Reply{msg}
+			return nil
+		}
 		success := node.clientWriteReq(ClientRequest{node.Coordinator, 1, request.Filename, request.Filecontent})
 		// wait for propagation
 		for {
@@ -98,11 +103,16 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 				break
 			}
 			//TODO: implement fail msg
-			//if success == false {}
+			if success == false {
+				msg = "Received Write Failed"
+				go node.RunPropogateMaster()
+				break
+			}
 			//Timeout of 10s on client side
 			t := time.Now()
 			if t.Sub(start_time) > (10*time.Second) || !success {
 				msg = "Received Write Failed"
+				go node.RunPropogateMaster()
 				break
 			}
 		}
@@ -118,10 +128,13 @@ func (l *Listener) Keepalive(c *Client, reply *Reply) error {
 	return nil
 }
 
-func (l *Listener) GetCoordinator(c *Client, reply *Reply) error {
-	fmt.Printf("Received: Client %v is asking for new coordinator.\n", c.id)
-	concat := "New Coordinator is: " + strconv.Itoa(node.Coordinator)
-	*reply = Reply{concat}
+func (l *Listener) GetCoordinator(id int, reply *CoordReply) error {
+	fmt.Printf("Received: Client %v is asking for new coordinator.\n", id)
+	if node.electing{
+		*reply = CoordReply{node.Coordinator, "wait"}
+		return nil
+	}
+	*reply = CoordReply{node.Coordinator, "done"}
 	return nil
 }
 
@@ -129,7 +142,7 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 	fmt.Printf("Received: %v from server %v\n\n", msg.Msg, msg.SenderID)
 	if msg.SenderID < node.id {
 		*reply = Message{node.id, "No"}
-		if !node.electing {
+		if !node.electing && node.initialized {
 			go node.Elect()
 		}
 	} else if msg.Msg == "I am Coordinator" {
@@ -144,7 +157,7 @@ func (l *Listener) Election(msg Message, reply *Message) error {
 	return nil
 }
 
-func (l * Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
+func (l *Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFileTransfer) error {
 	fmt.Printf("Received: %v Master update from server %v\n\n", msg.Msg, msg.SenderID)
 	// log.Println("Receiving over bytes: ",msg.Bytedata)
 	err := ioutil.WriteFile("Master-db", msg.Bytedata, 0644)
@@ -159,10 +172,6 @@ func (l * Listener) MasterPropogateDB(msg MessageFileTransfer, reply *MessageFil
 	return nil
 }
 
-
-
-
-
 //message will contain new file data
 func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 	if len(file.FileNames) > 1 {
@@ -171,6 +180,11 @@ func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 		fmt.Printf("Received: file %v from Master Server %v.\n", file.FileNames[0], file.SenderID)
 	}
 	//should wait for DB to finish updating
+	// if successful in the write
+	node.written = true
+	//TODO: should wait for DB to finish updating
+	node.sample_write(file.FileNames[0], file.FileContents[0])
+	//call function that takes input file and updates database
 	*reply = Reply{"ACK"}
 	return nil
 }
@@ -184,16 +198,16 @@ func makeNode(id int) *Node {
 	var rpcChan [3]*rpc.Client
 	// var rpcChan [5]*rpc.Client
 	dbfilename := InitializeDB(id)
-	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename}
-	go IterateValuesDB(dbfilename)
+	written := false
+	writing := false
+	block := false
+	initialized := false
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized}
+
 	go curr_node.connect_all()
-	
-	
 
 	return &curr_node
 }
-
-
 
 func (n *Node) connect_all() {
 	for ind, curr_ip := range n.all_ip {
@@ -202,17 +216,32 @@ func (n *Node) connect_all() {
 			continue
 		}
 		go n.connect(ind, curr_ip)
-		// curr_connect, err := rpc.Dial("tcp", curr_ip)
-		// if err != nil {
-		// 	log.Println("Cannot connect with server:", ind)
-		// 	// curr_connect.Close()
-		// 	continue
-		// }
-		// n.rpcChan[ind] = curr_connect
 	}
-	// log.Println("rpcChan:", n.rpcChan)
-	// go n.ping()
-	go n.Elect()
+
+	// pause to allow for connection to establish
+	time.Sleep(time.Second)
+
+	coord, ind := n.GetCoordinator()
+	log.Println(coord)
+	if coord == -1{
+		log.Println("all nodes are just initialized")
+	}else{
+		// In the case where master server dies and restarts before a new master is elected
+		if coord == n.id{
+			// pause to allow other nodes to re-establish connection
+			time.Sleep(5*time.Second)
+			// get db from any node
+			n.getMasterProp(ind)
+			// propagate db to all other node
+			n.RunPropogateMaster()
+		}else {
+			n.getMasterProp(coord)
+		}
+	}
+	if !n.electing{
+		go n.Elect()
+	}
+	n.initialized = true
 }
 
 func send(msg Message, rpcChan *rpc.Client) string {
@@ -255,7 +284,7 @@ func send_elect(msg Message, rpcChan *rpc.Client) string {
 	return reply.Msg
 }
 
-func MasterSendPropogate(msg MessageFileTransfer, rpcChan  *rpc.Client ){ //Master Send DB to SINGLE server
+func MasterSendPropogate(msg MessageFileTransfer, rpcChan *rpc.Client) { //Master Send DB to SINGLE server
 	var reply Message
 	for {
 		err := rpcChan.Call("Listener.MasterPropogateDB", msg, &reply)
@@ -267,13 +296,7 @@ func MasterSendPropogate(msg MessageFileTransfer, rpcChan  *rpc.Client ){ //Mast
 	}
 }
 
-
-
-
-
 func (n *Node) Elect() {
-	// pause to allow for connection to establish
-	time.Sleep(5 * time.Second)
 	// if n.Coordinator == n.id {
 	// 	return
 	// }
@@ -291,7 +314,7 @@ func (n *Node) Elect() {
 				log.Println("Server", n.id, "Received reply:", reply)
 				if reply == "No" {
 					n.electing = false
-					<-time.After(time.Second * 5)
+					<-time.After(time.Second * 2)
 					log.Println("Has Coordinator changed?", n.Coord_chng)
 					if !n.Coord_chng && !n.electing {
 						go n.Elect()
@@ -311,6 +334,9 @@ func (n *Node) Elect() {
 		if curr_connect == nil {
 			continue
 		}
+		// Uncomment this section to test the scenario where node 2 (master) dies before sending "I am Coordinator" message
+		// Need to manually stop the process/docker container after election
+		// return
 		go send_elect(Message{n.id, "I am Coordinator"}, curr_connect)
 	}
 	// Set self to be coordinator
@@ -321,7 +347,7 @@ func (n *Node) Elect() {
 	n.electing = false
 }
 
-func (n *Node) RunPropogateMaster(){ //Yx Call this only when you want to propogate Master DB to ALL servers
+func (n *Node) RunPropogateMaster() { //Yx Call this only when you want to propogate Master DB to ALL servers
 	// key := [] byte("key roomba") //uncomment to check for file transfer ok
 	// value := [] byte("value samba")
 	// WriteToDB(n.dbfilename,key,value)
@@ -329,14 +355,14 @@ func (n *Node) RunPropogateMaster(){ //Yx Call this only when you want to propog
 	if err != nil {
 		log.Fatal(err)
 	}
-	masterFileInBytes,err := ioutil.ReadAll(masterFile)
+	masterFileInBytes, err := ioutil.ReadAll(masterFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	sendThis := MessageFileTransfer{n.id,"Servers, follow my master copy",masterFileInBytes}
+	sendThis := MessageFileTransfer{n.id, "Servers, follow my master copy", masterFileInBytes}
 	for _, curr_connect := range n.rpcChan {
 		if curr_connect != nil {
-			MasterSendPropogate(sendThis,curr_connect)
+			MasterSendPropogate(sendThis, curr_connect)
 		}
 	}
 }
@@ -357,7 +383,7 @@ func (n *Node) ping(ind int) {
 			// attempt to re-establish connection within 5s
 			go n.connect(ind, n.all_ip[ind])
 			// Start election if not already in election
-			if !node.electing && ind == n.Coordinator {
+			if !node.electing && ind == n.Coordinator && n.initialized{
 				log.Println("starting election")
 				node.Coordinator = -1
 				node.Coord_chng = false
@@ -380,14 +406,14 @@ func InitializeDB(nodenumber int) string {
 	defer db.Close()
 	fmt.Println("DB Initialized for server", nodenumber_str)
 	bucketname_byte := []byte("bucket")
-	err = db.Update(func(tx *bolt.Tx) error {  //Init Bucket
-        _, err := tx.CreateBucketIfNotExists(bucketname_byte)
-        if err != nil {
-            return err
-        }
+	err = db.Update(func(tx *bolt.Tx) error { //Init Bucket
+		_, err := tx.CreateBucketIfNotExists(bucketname_byte)
+		if err != nil {
+			return err
+		}
 		fmt.Println("Bucket Initialized for server", nodenumber_str)
 		return nil
-    })
+	})
 	return dbfilename
 }
 
@@ -417,8 +443,8 @@ func WriteToDB(dbfilename string, key,value [] byte) error {   //if Key-value al
 	})
 
 	if err != nil {
-        log.Fatal(err)
-    }
+		log.Fatal(err)
+	}
 	return err
 }
 
@@ -495,7 +521,6 @@ func CopyMasterFile(masterDBfilename string,currentServerNodenumber int){
 	}
 	log.Printf("Master copy propogated. Copied %d bytes.", bytesCopied)
 	os.Remove(masterDBfilename)
-    
 
 }
 
@@ -520,10 +545,9 @@ func (n *Node) clientWriteReq(d ClientRequest) bool {
 		}
 	}
 	if count == 4 {
+		n.sample_write(d.Filename, d.Filecontent)
 		return true
 	}
-	//something has failed and should call master propogate
-	//TODO:master propagate db
 	return false
 }
 
@@ -569,12 +593,17 @@ func (n *Node) masterPropogateDB() {
 var node *Node
 
 func main() {
+	// Uncomment this to test how a higher id node becomes master server after restarting
+	// time.Sleep(5*time.Second)
+
 	// addy, err := net.ResolveTCPAddr("tcp", "172.20.0.2:12345")
 	// if err != nil {
 	//   log.Fatal(err)
 	// }
 
 	// Get ip addr
+	// Uncomment to pause to allow for new master to be elected
+	// time.Sleep(5*time.Second)
 	ip_addr := os.Args[1]
 	id_arg := os.Args[2]
 	id, _ := strconv.Atoi(id_arg)
@@ -623,4 +652,91 @@ func (n *Node) connect(ind int, curr_ip string) {
 		return
 	}
 	return
+}
+
+func (n *Node) getMasterProp(coord int){
+	log.Println("getting master db")
+	// ask if master has updated
+	var reply Message
+	// ensure that channel is not nil
+	curr_chan := n.rpcChan[coord]
+	if curr_chan != nil{
+		curr_chan.Call("Listener.CheckMasterDB", Message{n.id, ""}, &reply)
+		if reply.Msg == "not written"{
+			log.Println("master db not written so no need to get master db")
+			return
+		} else if reply.Msg == "wait"{
+			time.Sleep(5*time.Second)
+			n.getMasterProp(coord)
+			return
+		} else if reply.Msg == "sent"{
+			log.Println("master says he sent the db already")
+		}
+	} else{
+		log.Println("no connection to:", coord)
+	}
+}
+
+// get the new coordinator
+func (n *Node) GetCoordinator() (int, int) {
+	var CoordinatorReply CoordReply
+	newCoord := -1
+	index := 0
+	for ind,curr_connect := range n.rpcChan {
+		if ind == n.id || curr_connect==nil{
+			continue
+		}
+		curr_connect.Call("Listener.GetCoordinator", n.id, &CoordinatorReply)
+		log.Printf(CoordinatorReply.Data)
+		if CoordinatorReply.Data == "wait"{
+			time.Sleep(5*time.Second)
+			continue
+		}
+		if CoordinatorReply.Data == ""{
+			continue
+		}
+		newCoordinatorInt := CoordinatorReply.Coord
+		newCoord = newCoordinatorInt
+		index = ind
+		if newCoord == -1 {
+			continue
+		}else{
+			return newCoord, index
+		}
+	}
+	return newCoord, index
+}
+
+func (l *Listener) CheckMasterDB(msg Message, reply *Message) error {
+	log.Println("check if master has a written DB")
+	if !node.written {
+		// not written thus no need to send updated DB
+		*reply = Message{node.id, "not written"}
+		return nil
+	} 
+
+	// block all future writes using semaphore
+	node.block = true
+
+	if node.electing || node.writing {
+		// written DB but in the middle of election or writting
+		// tell server to wait
+		*reply = Message{node.id, "wait"}
+		return nil
+	} else {
+		// Send the DB over to the server
+		masterFile, err := os.Open(node.dbfilename)
+		if err != nil {
+			log.Println(err)
+		}
+		masterFileInBytes,err := ioutil.ReadAll(masterFile)
+		if err != nil {
+			log.Println(err)
+		}
+		sendThis := MessageFileTransfer{node.id,"Servers, follow my master copy",masterFileInBytes}
+		MasterSendPropogate(sendThis, node.rpcChan[msg.SenderID])
+		*reply = Message{node.id, "sent"}
+		node.block = false
+	}
+	return nil
 }
