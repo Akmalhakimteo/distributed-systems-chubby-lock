@@ -59,9 +59,14 @@ func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
 
 func (client *Client) GetCoordinator() {
 	var CoordinatorReply Reply
-	client.rpcChan.Call("Listener.GetCoordinator", &client, &CoordinatorReply)
+	client.rpcChan.Call("Listener.GetCoordinator", client.id, &CoordinatorReply)
 	time.Sleep(time.Second * 5)
 	log.Printf(CoordinatorReply.Data)
+	if CoordinatorReply.Data == "wait"{
+		time.Sleep(time.Second * 5)
+		client.GetCoordinator()
+		return
+	}
 	newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
 	newCoordinatorInt, err := strconv.Atoi(newCoordinator)
 	if err != nil {

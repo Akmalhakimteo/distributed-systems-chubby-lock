@@ -54,6 +54,7 @@ type Node struct {
 	// rpcChan     [5]*rpc.Client
 	Coord_chng bool
 	dbfilename string
+	written bool
 	// revChan chan Message
 	// replyChan chan Message
 	// ClientChan chan c.SelfIntroduction
@@ -111,8 +112,12 @@ func (l *Listener) Keepalive(c *Client, reply *Reply) error {
 	return nil
 }
 
-func (l *Listener) GetCoordinator(c *Client, reply *Reply) error {
-	fmt.Printf("Received: Client %v is asking for new coordinator.\n", c.id)
+func (l *Listener) GetCoordinator(id int, reply *Reply) error {
+	fmt.Printf("Received: Client %v is asking for new coordinator.\n", id)
+	if node.electing{
+		*reply = Reply{"wait"}
+		return nil
+	}
 	concat := "New Coordinator is: " + strconv.Itoa(node.Coordinator)
 	*reply = Reply{concat}
 	return nil
@@ -145,6 +150,8 @@ func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 		fmt.Printf("Received: file %v from Master Server %v.\n", file.FileNames[0], file.SenderID)
 	}
 	//should wait for DB to finish updating
+	// if successful in the write
+	node.written = true
 	*reply = Reply{"ACK"}
 	return nil
 }
@@ -158,7 +165,8 @@ func makeNode(id int) *Node {
 	var rpcChan [3]*rpc.Client
 	// var rpcChan [5]*rpc.Client
 	dbfilename := InitializeDB(id)
-	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename}
+	written := false
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written}
 
 	go curr_node.connect_all()
 
@@ -172,17 +180,20 @@ func (n *Node) connect_all() {
 			continue
 		}
 		go n.connect(ind, curr_ip)
-		// curr_connect, err := rpc.Dial("tcp", curr_ip)
-		// if err != nil {
-		// 	log.Println("Cannot connect with server:", ind)
-		// 	// curr_connect.Close()
-		// 	continue
-		// }
-		// n.rpcChan[ind] = curr_connect
 	}
-	// log.Println("rpcChan:", n.rpcChan)
-	// go n.ping()
-	go n.Elect()
+
+	// pause to allow for connection to establish
+	time.Sleep(time.Second)
+
+	coord := n.GetCoordinator()
+	if coord == -1{
+		log.Println("all nodes are just initialized")
+	}else{
+		n.getMasterProp(coord)
+	}
+	if !n.electing{
+		go n.Elect()
+	}
 }
 
 func send(msg Message, rpcChan *rpc.Client) string {
@@ -226,8 +237,6 @@ func send_elect(msg Message, rpcChan *rpc.Client) string {
 }
 
 func (n *Node) Elect() {
-	// pause to allow for connection to establish
-	time.Sleep(5 * time.Second)
 	// if n.Coordinator == n.id {
 	// 	return
 	// }
@@ -245,7 +254,7 @@ func (n *Node) Elect() {
 				log.Println("Server", n.id, "Received reply:", reply)
 				if reply == "No" {
 					n.electing = false
-					<-time.After(time.Second * 5)
+					<-time.After(time.Second * 2)
 					log.Println("Has Coordinator changed?", n.Coord_chng)
 					if !n.Coord_chng && !n.electing {
 						go n.Elect()
@@ -265,6 +274,9 @@ func (n *Node) Elect() {
 		if curr_connect == nil {
 			continue
 		}
+		// Uncomment this section to test the scenario where node 2 (master) dies before sending "I am Coordinator" message
+		// Need to manually stop the process/docker container after election
+		// return
 		go send_elect(Message{n.id, "I am Coordinator"}, curr_connect)
 	}
 	// Set self to be coordinator
@@ -464,6 +476,9 @@ func (n *Node) masterPropogateDB() {
 var node *Node
 
 func main() {
+	// Uncomment this to test how a higher id node becomes master server after restarting
+	// time.Sleep(5*time.Second)
+
 	// addy, err := net.ResolveTCPAddr("tcp", "172.20.0.2:12345")
 	// if err != nil {
 	//   log.Fatal(err)
@@ -517,4 +532,39 @@ func (n *Node) connect(ind int, curr_ip string) {
 		return
 	}
 	return
+}
+
+func (n *Node) getMasterProp(coord int){
+	// ask if master has updated
+	// n.rpcChan[coord].Call("Listener.GetDB", n.id, &CoordinatorReply)
+	log.Println("getting master db")
+}
+
+// get the new coordinator
+func (n *Node) GetCoordinator() int {
+	var CoordinatorReply Reply
+	newCoord := -1
+	for ind,curr_connect := range n.rpcChan {
+		if ind == n.id || curr_connect==nil{
+			continue
+		}
+		curr_connect.Call("Listener.GetCoordinator", n.id, &CoordinatorReply)
+		log.Printf(CoordinatorReply.Data)
+		if CoordinatorReply.Data == "wait"{
+			time.Sleep(5*time.Second)
+			continue
+		}
+		newCoordinator := CoordinatorReply.Data[len(CoordinatorReply.Data)-1:]
+		newCoordinatorInt, err := strconv.Atoi(newCoordinator)
+		newCoord = newCoordinatorInt
+		if err != nil {
+			fmt.Println("Int conversion error")
+		}
+		if newCoord == -1 {
+			continue
+		}else{
+			return newCoord
+		}
+	}
+	return newCoord
 }
