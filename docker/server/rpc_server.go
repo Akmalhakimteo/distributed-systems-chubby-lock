@@ -10,6 +10,7 @@ import (
 	"net/rpc"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -72,6 +73,7 @@ type Node struct {
 }
 
 type Maplock struct {
+	mu    sync.Mutex
 	locks map[string]lockCtr //string is the file name, lockctr is the lock object
 }
 
@@ -111,7 +113,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 			if success {
 				msg = "Received Write Successful"
 				//Uncomment to test multiple clients acquiring the same lock
-				time.Sleep(10*time.Second)
+				time.Sleep(10 * time.Second)
 				ReleaseLock(request, msg)
 				break
 			}
@@ -131,7 +133,7 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 				go node.RunPropogateMaster()
 				//TODO: RELEASE LOCK
 				//Uncomment to test multiple clients acquiring the same lock
-				time.Sleep(10*time.Second)
+				time.Sleep(10 * time.Second)
 				ReleaseLock(request, msg)
 				break
 			}
@@ -223,7 +225,8 @@ func makeNode(id int) *Node {
 	writing := false
 	block := false
 	initialized := false
-	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized, Maplock{make(map[string]lockCtr)}}
+	c := Maplock{locks: make(map[string]lockCtr)}
+	curr_node := Node{id, all_ip, Coordinator, electing, rpcChan, false, dbfilename, written, writing, block, initialized, c}
 
 	go curr_node.connect_all()
 
@@ -357,7 +360,9 @@ func (n *Node) Elect() {
 		}
 		// Uncomment this section to test the scenario where node 2 (master) dies before sending "I am Coordinator" message
 		// Need to manually stop the process/docker container after election
-		// return
+		// if n.id == 2 {
+		// 	return
+		// }
 		go send_elect(Message{n.id, "I am Coordinator"}, curr_connect)
 	}
 	// Set self to be coordinator
@@ -466,7 +471,7 @@ func WriteToDB(dbfilename string, key, value []byte) error { //if Key-value aler
 	return err
 }
 
-func GetValueFromDB(dbfilename string, key []byte) string{
+func GetValueFromDB(dbfilename string, key []byte) string {
 	var new_val string
 	bucketname_byte := []byte("bucket")
 	db, err := bolt.Open(dbfilename, 0666, &bolt.Options{Timeout: 1 * time.Second, ReadOnly: true}) //Bolt obtains file lock on data file so multiple processes cannot open same database at the same time. timeout prevents indefinite wait
@@ -612,37 +617,20 @@ func (n *Node) masterPropogateDB() {
 
 }
 
-// Lock locks the mutex
-// func (l *lockCtr) Lock() {
-// 	l.mu.Lock()
-// }
-
-// // Unlock unlocks the mutex
-// func (l *lockCtr) Unlock() {
-// 	l.mu.Unlock()
-// }
-
-// // New creates a new Maplock
-// func New() *Maplock {
-// 	return &Maplock{
-// 		locks: make(map[string]*lockCtr),
-// 	}
-// }
-
 // Lock locks a mutex with the given name. If it doesn't exist, one is created
 func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
 	fmt.Println("Client is trying to acquire the lock for file", string(request.Filename))
-	log.Println(node.lock.locks)
+	// log.Println(node.lock)
+	node.lock.mu.Lock() //lock the map which works now
+	// log.Println(node.lock)
 	lock, exist := node.lock.locks[string(request.Filename)]
-	if !exist {
+	node.lock.locks[string(request.Filename)] = lock
+	if !exist { //create lock
 		lock.clientID = request.SenderID
 		*reply = Reply{"You can have the lock"}
 		fmt.Println("Client ", request.SenderID, " has been granted the lock")
-	}
-	node.lock.locks[string(request.Filename)] = lock
-	if exist {
-		avail := lock.clientID
-		if avail == -1 {
+	} else {
+		if lock.clientID == -1 {
 			//no one has the lock
 			lock.clientID = request.SenderID
 			*reply = Reply{"You can have the lock"}
@@ -651,7 +639,8 @@ func (l *Listener) TryAcquire(request ClientRequest, reply *Reply) error {
 			*reply = Reply{"Someone else has the lock"}
 			fmt.Println("Client ", request.SenderID, " has been denied the lock")
 		}
-	} 
+	}
+	node.lock.mu.Unlock() //unlock to make sure next write request goes thru
 	// else {
 
 	// 	lock.clientID = request.SenderID
@@ -669,7 +658,7 @@ func ReleaseLock(request ClientRequest, msg string) error {
 		lock.clientID = -1
 		lock.sequenceNo++
 		fmt.Println("Lock has been released after successful write. New sequence number for file ", string(request.Filename), " is ", lock.sequenceNo)
-	} else{ 
+	} else {
 		lock := node.lock.locks[string(request.Filename)]
 		lock.clientID = -1 //release lock still but dont update sequenceNo bc it's not a successful write
 		fmt.Println("Lock has been released due to unsuccessful write, sequence number for file ", string(request.Filename), " is ", lock.sequenceNo)
