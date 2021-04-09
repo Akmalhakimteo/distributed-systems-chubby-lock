@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
+	"os"
 	"strconv"
 	"time"
-	"os"
 )
 
 type Reply struct {
@@ -24,7 +24,7 @@ type Message struct {
 }
 
 type Client struct {
-	id          int
+	ID          int
 	Coordinator int
 	rpcChan     *rpc.Client
 	all_ip      [3]string
@@ -39,9 +39,9 @@ type ClientRequest struct {
 
 // Client Read Request
 // Client should send: filename string
-func (client *Client) SendReadRequest(filename []byte) string{
+func (client *Client) SendReadRequest(filename []byte) string {
 	fmt.Println("Client wants to read file ", string(filename))
-	ReadRequest := ClientRequest{SenderID: client.id, Write: 0, Filename: filename, Filecontent: nil}
+	ReadRequest := ClientRequest{SenderID: client.ID, Write: 0, Filename: filename, Filecontent: nil}
 	var ReadReply Reply
 	readrequest_err := client.rpcChan.Call("Listener.GetRequest", ReadRequest, &ReadReply)
 	if readrequest_err != nil {
@@ -55,13 +55,21 @@ func (client *Client) SendReadRequest(filename []byte) string{
 // Client Write Request
 // Client should send: filename string, value []byte
 func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
-	WriteRequest := ClientRequest{SenderID: client.id, Write: 1, Filename: filename, Filecontent: filecontent}
+	WriteRequest := ClientRequest{SenderID: client.ID, Write: 1, Filename: filename, Filecontent: filecontent}
 	var WriteReply Reply
 	writerequest_err := client.rpcChan.Call("Listener.GetRequest", WriteRequest, &WriteReply)
 	if writerequest_err != nil {
 		fmt.Printf("Client Write Request Failed")
 	}
 	// wait for ack
+	if WriteReply.Data == "Received Write Failed" {
+		// time out and try again
+		time.Sleep(time.Second * 5)
+		fmt.Printf("%v will try write again", client.ID)
+		client.Write(filename, filecontent)
+	} else if WriteReply.Data == "Received Write Successful" {
+		fmt.Println("Client write has been successful")
+	}
 	log.Printf(WriteReply.Data)
 }
 
@@ -70,7 +78,7 @@ func (client *Client) SendWriteRequest(filename []byte, filecontent []byte) {
 func (client *Client) Write(filename []byte, filecontent []byte) {
 	//tryacquirelock()
 	fmt.Println("trying to acquire lock")
-	clientRequest := ClientRequest{SenderID: client.id, Write: 1, Filename: filename, Filecontent: filecontent}
+	clientRequest := ClientRequest{SenderID: client.ID, Write: 1, Filename: filename, Filecontent: filecontent}
 	var TryAcquireReply Reply
 	tryacquire_err := client.rpcChan.Call("Listener.TryAcquire", clientRequest, &TryAcquireReply)
 	if tryacquire_err != nil {
@@ -81,16 +89,21 @@ func (client *Client) Write(filename []byte, filecontent []byte) {
 		// write to file
 		client.SendWriteRequest(filename, filecontent)
 		fmt.Printf("Client writing to file %v with contents %v\n", string(filename), string(filecontent))
+
 	} else if TryAcquireReply.Data == "Someone else has the lock" {
 		// sucks to be you, just read the file
 		client.SendReadRequest(filename)
 		fmt.Println("Client failed write, reading file ", string(filename))
+
+		// timeout, try write again
+		time.Sleep(time.Second * 5)
+		client.Write(filename, filecontent)
 	}
 }
 
 func (client *Client) GetCoordinator() {
 	var CoordinatorReply CoordReply
-	client.rpcChan.Call("Listener.GetCoordinator", client.id, &CoordinatorReply)
+	client.rpcChan.Call("Listener.GetCoordinator", client.ID, &CoordinatorReply)
 	time.Sleep(time.Second * 5)
 	log.Printf(CoordinatorReply.Data)
 	if CoordinatorReply.Data == "wait" {
@@ -136,19 +149,19 @@ func (client *Client) SendKeepAlive(serverInt int) {
 	}
 }
 
-func makeClient(id int) *Client {
+func makeClient(ID int) *Client {
 	all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
 	// all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
 	Coordinator := 2
 	// Coordinator := 4
 	var rpcChan *rpc.Client
-	curr_client := Client{id, Coordinator, rpcChan, all_ip}
+	curr_client := Client{ID, Coordinator, rpcChan, all_ip}
 
 	return &curr_client
 }
 
-func (client *Client) ConsistentRead(filename []byte){
-	for{
+func (client *Client) ConsistentRead(filename []byte) {
+	for {
 		content := client.SendReadRequest(filename)
 		log.Println("this is the new Client's master:", content)
 		time.Sleep(time.Second)
@@ -160,11 +173,11 @@ func main() {
 	//TODO: Client needs to communicate with chubby cell to find out coordinator
 	time.Sleep(5 * time.Second)
 
-	id_arg := os.Args[1]
-	id, _ := strconv.Atoi(id_arg)
-	client := makeClient(id)
+	ID_arg := os.Args[1]
+	ID, _ := strconv.Atoi(ID_arg)
+	client := makeClient(ID)
 
-	log.Println("Client", id, "is running")
+	log.Println("Client", ID, "is running")
 
 	clientChan, err := rpc.Dial("tcp", client.all_ip[client.Coordinator])
 	if err != nil {
@@ -174,17 +187,17 @@ func main() {
 
 	// readfilename := []byte("read.txt")
 	writefilename := []byte("master")
-	writecontents := []byte(id_arg)
-	go client.SendKeepAlive(client.Coordinator)
+	writecontents := []byte(ID_arg)
 
-	time.Sleep(time.Second * 5)
-	//client read request
-	// client.SendReadRequest(readfilename)
+	// wait for election to finish
+	time.Sleep(time.Second * 10)
 
 	//client write request
 	go client.ConsistentRead(writefilename)
 	client.Write(writefilename, writecontents)
 
 	time.Sleep(time.Second * 5)
+
+	client.SendKeepAlive(client.Coordinator)
 
 }
