@@ -12,8 +12,8 @@ services:
         depends_on:
             - "server1"
             - "server2"
-            # - "server3"
-            # - "server4"
+            - "server3"
+            - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.7
@@ -28,8 +28,8 @@ services:
                 # delay: 5s
         depends_on:
             - "server2"
-            # - "server3"
-            # - "server4"
+            - "server3"
+            - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.3
@@ -42,30 +42,30 @@ services:
             restart_policy:
                 condition: any
                 # delay: 5s
-        # depends_on:
-        #     - "server3"
-        #     - "server4"
+        depends_on:
+            - "server3"
+            - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.4
-    # server3:
-    #     build:
-    #         context: ./server/
-    #         dockerfile: Dockerfile.server3
-    #     container_name: server3
-    #     depends_on:
-    #         - "server4"
-    #     networks:
-    #         static-network:
-    #             ipv4_address: 172.22.0.5
-    # server4:
-    #     build:
-    #         context: ./server/
-    #         dockerfile: Dockerfile.server4
-    #     container_name: server4
-    #     networks:
-    #         static-network:
-    #             ipv4_address: 172.22.0.6
+    server3:
+        build:
+            context: ./server/
+            dockerfile: Dockerfile.server3
+        container_name: server3
+        depends_on:
+            - "server4"
+        networks:
+            static-network:
+                ipv4_address: 172.22.0.5
+    server4:
+        build:
+            context: ./server/
+            dockerfile: Dockerfile.server4
+        container_name: server4
+        networks:
+            static-network:
+                ipv4_address: 172.22.0.6
     client0:
         build:
             context: ./client/
@@ -76,8 +76,8 @@ services:
             - "server0"
             - "server1"
             - "server2"
-            # - "server3"
-            # - "server4"
+            - "server3"
+            - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.0.2
@@ -91,11 +91,56 @@ services:
             - "server0"
             - "server1"
             - "server2"
-            # - "server3"
-            # - "server4"
+            - "server3"
+            - "server4"
         networks:
             static-network:
                 ipv4_address: 172.22.1.0
+    client2:
+        build:
+            context: ./client/
+            dockerfile: Dockerfile.client2
+        container_name: client2
+        # image: my-golang-app-client
+        depends_on:
+            - "server0"
+            - "server1"
+            - "server2"
+            - "server3"
+            - "server4"
+        networks:
+            static-network:
+                ipv4_address: 172.22.2.0
+    client3:
+        build:
+            context: ./client/
+            dockerfile: Dockerfile.client3
+        container_name: client3
+        # image: my-golang-app-client
+        depends_on:
+            - "server0"
+            - "server1"
+            - "server2"
+            - "server3"
+            - "server4"
+        networks:
+            static-network:
+                ipv4_address: 172.22.3.0
+    client4:
+        build:
+            context: ./client/
+            dockerfile: Dockerfile.client4
+        container_name: client4
+        # image: my-golang-app-client
+        depends_on:
+            - "server0"
+            - "server1"
+            - "server2"
+            - "server3"
+            - "server4"
+        networks:
+            static-network:
+                ipv4_address: 172.22.4.0
 networks:
     static-network:
         ipam:

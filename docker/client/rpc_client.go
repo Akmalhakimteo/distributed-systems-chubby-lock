@@ -27,7 +27,8 @@ type Client struct {
 	ID          int
 	Coordinator int
 	rpcChan     *rpc.Client
-	all_ip      [3]string
+	// all_ip      [3]string
+	all_ip      [5]string
 }
 
 type ClientRequest struct {
@@ -150,10 +151,10 @@ func (client *Client) SendKeepAlive(serverInt int) {
 }
 
 func makeClient(ID int) *Client {
-	all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
-	// all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
-	Coordinator := 2
-	// Coordinator := 4
+	// all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
+	all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
+	// Coordinator := 2
+	Coordinator := 4
 	var rpcChan *rpc.Client
 	curr_client := Client{ID, Coordinator, rpcChan, all_ip}
 

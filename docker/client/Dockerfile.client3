@@ -7,7 +7,7 @@ RUN go get -d -v ./...
 RUN go install -v ./...
 
 # simulate multiple clients writing to different file
-# CMD ["./diff_file.sh", "30", "0", "master"]
+# CMD ["./diff_file.sh", "30", "3", "master"]
 # simulate multiple clients writing to the same file
-# CMD ["./multiple_client.sh", "30", "0", "master"]
-CMD ["app", "0", "master"]
+# CMD ["./multiple_client.sh", "30", "3", "master"]
+CMD ["app", "3", "master"]

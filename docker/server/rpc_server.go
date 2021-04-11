@@ -57,12 +57,12 @@ type DatabaseData struct {
 
 type Node struct {
 	ID     int
-	all_ip [3]string
-	// all_ip      [5]string
+	// all_ip [3]string
+	all_ip      [5]string
 	Coordinator int
 	electing    bool
-	rpcChan     [3]*rpc.Client //connection channels within servers
-	// rpcChan     [5]*rpc.Client
+	// rpcChan     [3]*rpc.Client //connection channels within servers
+	rpcChan     [5]*rpc.Client
 	Coord_chng  bool
 	dbfilename  string
 	written     bool
@@ -214,13 +214,13 @@ func (l *Listener) MasterWrite(file DatabaseData, reply *Reply) error {
 }
 
 func makeNode(ID int) *Node {
-	all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
-	// all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
+	// all_ip := [3]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234"}
+	all_ip := [5]string{"172.22.0.7:1234", "172.22.0.3:1234", "172.22.0.4:1234", "172.22.0.5:1234", "172.22.0.6:1234"}
 	Coordinator := -1
 	// Coordinator := 4
 	electing := false
-	var rpcChan [3]*rpc.Client
-	// var rpcChan [5]*rpc.Client
+	// var rpcChan [3]*rpc.Client
+	var rpcChan [5]*rpc.Client
 	dbfilename := InitializeDB(ID)
 	written := false
 	writing := false
@@ -567,15 +567,15 @@ func (n *Node) clientWriteReq(d ClientRequest) bool {
 			count++
 		}
 	}
-	if count == 2 {
-		// if count ==4{  //UNCOMMENT IF SERVERS == 5
-		n.sample_write(d.Filename, d.Filecontent)
-		return true
-	}
-	// if count == 4 {
+	// if count == 2 {
+	// 	// if count ==4{  //UNCOMMENT IF SERVERS == 5
 	// 	n.sample_write(d.Filename, d.Filecontent)
 	// 	return true
 	// }
+	if count == 4 {
+		n.sample_write(d.Filename, d.Filecontent)
+		return true
+	}
 	return false
 }
 
