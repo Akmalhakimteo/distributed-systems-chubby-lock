@@ -6,4 +6,8 @@ COPY . .
 RUN go get -d -v ./...
 RUN go install -v ./...
 
-CMD ["app", "1"]
+# simulate multiple clients writing to the same file
+# CMD ["./multiple_client.sh", "10", "1", "master"]
+# simulate multiple clients writing to different file
+CMD ["./diff_file.sh", "10", "1", "master"]
+# CMD ["app", "1", "master"]

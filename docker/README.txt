@@ -4,4 +4,6 @@ To run:
 
 Whenever you change any of the code, remember to run the build command first. To decide on the number of nodes to run, change the docker-compose.yml file by commenting/uncommenting the nodes that you want.
 
-Comment out lines 340 - 343 to remove the DB write and get 
+Comment out lines 340 - 343 to remove the DB write and get
+
+change in the dockerfile.client0-1 the 1st arg to change the number of clients each container should run. Uncomment the respective lines in the dockfile to test multiple clients writing to the same file, or multiple clients writing to different files(in this case each client write to 1 file). Uncomment the last line to run 1 client per container writing to the same file.

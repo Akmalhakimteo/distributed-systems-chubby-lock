@@ -95,9 +95,9 @@ func (client *Client) Write(filename []byte, filecontent []byte) {
 		client.SendReadRequest(filename)
 		fmt.Println("Client failed write, reading file ", string(filename))
 
-		// timeout, try write again
-		time.Sleep(time.Second * 5)
-		client.Write(filename, filecontent)
+		// // timeout, try write again
+		// time.Sleep(time.Second * 5)
+		// client.Write(filename, filecontent)
 	}
 }
 
@@ -174,6 +174,7 @@ func main() {
 	time.Sleep(5 * time.Second)
 
 	ID_arg := os.Args[1]
+	filename := os.Args[2]
 	ID, _ := strconv.Atoi(ID_arg)
 	client := makeClient(ID)
 
@@ -186,7 +187,7 @@ func main() {
 	client.rpcChan = clientChan
 
 	// readfilename := []byte("read.txt")
-	writefilename := []byte("master")
+	writefilename := []byte(filename)
 	writecontents := []byte(ID_arg)
 
 	// wait for election to finish

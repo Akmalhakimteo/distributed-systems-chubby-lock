@@ -111,9 +111,10 @@ func (l *Listener) GetRequest(request ClientRequest, reply *Reply) error {
 		// wait for propagation
 		for {
 			if success {
+				go IterateValuesDB(node.dbfilename)
 				msg = "Received Write Successful"
 				//Uncomment to test multiple clients acquiring the same lock
-				time.Sleep(10 * time.Second)
+				// time.Sleep(10 * time.Second)
 				ReleaseLock(request, msg)
 				break
 			}
