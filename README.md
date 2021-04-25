@@ -1,11 +1,11 @@
 # Distributed Systems Chubby Lock
 
 ## Contributors
-Shermine Chua Xin Min 
-Tan Yu Xiang 
-Wang Zefan 
-Zhang Jingyu 
-Akmal Hakim Teo 
+-Shermine Chua Xin Min 
+-Tan Yu Xiang 
+-Wang Zefan 
+-Zhang Jingyu 
+-Akmal Hakim Teo 
 
 ## Introduction
 
