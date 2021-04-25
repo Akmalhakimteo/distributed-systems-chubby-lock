@@ -64,108 +64,75 @@ Currently, each client dockerfile represents 1 client. To simulate multiple clie
 
 ### Experiments, Evaluations, Tests
 
-Bully’s Algorithm
+## Bully’s Algorithm
 
-
-
-
-Fig 4: Bully’s Algo Test case
-As shown in the diagrams above, if server 4 (master server) fails at any time, the remaining replicas start election to elect a new master server who has the highest node id, which in this case, server 3 gets elected. It will then propagate its database contents and exchange keepalives with the clients.
+If server 4 (master server) fails at any time, the remaining replicas start election to elect a new master server who has the highest node id, which in this case, server 3 gets elected. It will then propagate its database contents and exchange keepalives with the clients.
 
 To reproduce test results:
-
 After executing the program, kill the master server manually in docker desktop by stopping it. Expected outcome should be as similar to above mentioned results.
 
-Master Server Failure
+## Master Server Failure
+
 To ensure that when the master server fails, the remaining replicas start the election to elect a new master server who has the highest node id. Any ongoing write requests will fail, locks will be released and clients will have to request to write again to the newly elected master. Furthermore, the newly elected master server will propagate its database to all replicas servers.
 
-
-
-
-
-Fig 5: Master server failure test case
-As shown in the figures above, server 4 (master server) fails in the middle of a write request. Other replica servers that found out about this start election to be the new master server simultaneously and server 3 eventually wins to be the new master server. It then propagates its database contents to all remaining replica servers to ensure consistency.
+Server 4 (master server) fails in the middle of a write request. Other replica servers that found out about this start election to be the new master server simultaneously and server 3 eventually wins to be the new master server. It then propagates its database contents to all remaining replica servers to ensure consistency.
 
 To reproduce test results:
-
 First ensure that read and write calls in rpc_client.go are not commented.
 
 After executing the program, kill the master server manually in docker desktop by stopping it during a write request. Expected outcome should be as similar to above mentioned results.
 
-Replica Failure
+## Replica Failure
 To ensure that when a server replica fails, because there are less than five alive servers in the chubby cell, write requests by clients are failed and a rollback event occurs to ensure consistency in server databases.
 
-
-
-
-Fig 6: Replica server failure test case
-As shown in the figures above, server 3 (replica server) fails when server 4 (master server) is serving the write request. As such, server 4 will not receive 4 ACKs from all the replica servers in the chubby cell. It will then fail the write request and propagate the current copy (not updated) of its database across all replica servers to ensure consistency.
+Server 3 (replica server) fails when server 4 (master server) is serving the write request. As such, server 4 will not receive 4 ACKs from all the replica servers in the chubby cell. It will then fail the write request and propagate the current copy (not updated) of its database across all replica servers to ensure consistency.
 
 To reproduce test results:
-
 First ensure that read and write calls in rpc_client.go are not commented.
-
 After executing the program, kill any replica server manually in docker desktop by stopping it during write propagating as indicated by the print statement: “Server: 4 is forwarding write to other servers”. Expected outcome should be as similar to above mentioned results.
 
-Client Failure
+## Client Failure
 To ensure that when a client fails during a write request, the lock to the file is automatically released by the Master Server.
 
-
-
-
-Fig 7: Client failure test case
-The figures above show that when client 1 fails during a write request, the write request is still served and that the lock will be released by the master server automatically to allow other clients to acquire.
+When client 1 fails during a write request, the write request is still served and that the lock will be released by the master server automatically to allow other clients to acquire.
 
 To reproduce test results:
-
 First ensure that read and write calls in rpc_client.go are not commented.
 
 After the client has been granted the lock after approximately 10 seconds, manually kill the client in docker desktop to observe the above mentioned results.
 
 
-Master Server Recovery
+## Master Server Recovery
 To ensure that when a server with higher node id wakes up, it wins the election and receives the database contents of the current master server.
 
-Fig 8: Master server recovery test case
-Figure 8 shows that when Server 4 wakes up, it first gets the current coordinator id, starts election and then wins the election to be the new master server. After which, it will receive the database contents of the old master server which is server 3.
+When Server 4 wakes up, it first gets the current coordinator id, starts election and then wins the election to be the new master server. After which, it will receive the database contents of the old master server which is server 3.
 
 To reproduce test results:
-
 After executing the program, kill the master server manually in docker desktop by stopping it. 
 After a few seconds, manually restart the server by starting it again. Expected outcome should be as similar to above mentioned results.
 
-Keepalives
+## Keepalives
 To conduct constant health checks on the status of clients and servers.
 
-Fig 9: Keepalives test case
-
-Figure 9 shows that Keepalives messages are constantly exchanged between the clients and the master server, which in this case, is Server 4. Chubby servers will also exchange ping messages among themselves to check on their individual status. In an event of master server failure, chubby servers will begin election until the server with highest id wins to be the new master server, and the clients will exchange keepalives with the new master server.
+Keepalives messages are constantly exchanged between the clients and the master server, which in this case, is Server 4. Chubby servers will also exchange ping messages among themselves to check on their individual status. In an event of master server failure, chubby servers will begin election until the server with highest id wins to be the new master server, and the clients will exchange keepalives with the new master server.
 
 To reproduce test results:
 Execute the program normally to observe keepalive exchanges as shown above in server/client containers.
 
-Safety
+## Safety
 To ensure that only one client can be granted the lock to a file.
 
-Fig 10.1: Safety test case
-Figure 10.1 shows that Client 2 has been granted the lock and Server 4 is currently propagating the write request to other replicas.
-
-
-Fig 10.2: Safetytest case
-Figure 10.2 shows that while the write request from Client 2 is still in progress, Client 4 tries to acquire the lock and fails because Client 2 is still holding on to the lock.
+Client 2 has been granted the lock and Server 4 is currently propagating the write request to other replicas.
+While the write request from Client 2 is still in progress, Client 4 tries to acquire the lock and fails because Client 2 is still holding on to the lock.
 This ensures that, at any one time, only one client can be granted the lock to a specific file.
 
 To reproduce test results:
-
 First ensure that read and write calls in rpc_client.go are not commented.
 Execute the program normally to observe multiple clients trying to write to the same file. Expected outcome should be as similar to above mentioned results.
 
-Availability
+## Availability
 To test if other clients can still read the file when a write request is being served.
-
-Fig 11: Availability test case
-
-Figure 11 above shows that even read requests from multiple clients can be served concurrently while a write request is being served. The clients are reading “key value that does not exist“ because nothing has been written by the first client which has obtained the lock.
+Even read requests from multiple clients can be served concurrently while a write request is being served. The clients are reading “key value that does not exist“ because nothing has been written by the first client which has obtained the lock.
 
 
 
